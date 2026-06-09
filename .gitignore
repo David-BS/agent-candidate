@@ -1,0 +1,36 @@
+# --- Secrets: never in history, under any name ---
+.env
+.env.*
+*.key
+*.pem
+*credentials*
+*secret*
+
+# --- Run artifacts: local evidence, not published (curation may come later) ---
+*.log
+logs/
+runs/
+out/
+output/
+lettre_*.txt
+Cover_Letter_*.txt
+
+# --- Personal steering documents (FR, not for distribution) — belt and suspenders:
+# they live outside the repo root by design; these patterns are the backstop ---
+ROADMAP_*.md
+GLOSSAIRE_*.md
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+
+# --- OS / editor noise ---
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/

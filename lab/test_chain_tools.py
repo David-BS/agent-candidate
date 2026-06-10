@@ -367,9 +367,10 @@ def main():
     check("max_budget_usd == 0.10", options.max_budget_usd == 0.10)
 
     print("\n[R] Run telemetry -- RunRecord projection (no agent run, no API)")
-    # Two known ResultMessages: a clean success and the max_turns loop. The
+    # Known ResultMessages: a clean success, the max_turns loop, and an
+    # attributed run (real corroboration-run latencies, api > wall). The
     # transform is pure and channel-independent, so these checks run identically
-    # for every fixture (they add the same 26 to each fixture's tally).
+    # for every fixture (they add the same 39 to each fixture's tally).
     success = ResultMessage(
         subtype="success", duration_ms=17000, duration_api_ms=15200,
         is_error=False, num_turns=3, session_id="sess-success",
@@ -388,7 +389,8 @@ def main():
     check("session_id mapped", rec.session_id == "sess-success")
     check("latency split captured (total + api)",
           rec.duration_ms == 17000 and rec.duration_api_ms == 15200)
-    check("harness overhead derivable", rec.duration_ms - rec.duration_api_ms == 1800)
+    check("no derived overhead field (capture without interpretation)",
+          "overhead" not in asdict(rec))
     check("input_tokens from usage dict", rec.input_tokens == 1200)
     check("output_tokens from usage dict", rec.output_tokens == 1699)
     check("cache_creation from usage dict", rec.cache_creation_input_tokens == 4189)
@@ -398,6 +400,39 @@ def main():
     check("structured_output absent from record", "structured_output" not in _d)
     check("no content string leaks into the serialised line",
           "vivement interesse" not in json.dumps(_d, ensure_ascii=False))
+
+    check("models_used is None when model_usage absent upstream (null, not [])",
+          rec.models_used is None)
+    check("run_context defaults to None when not supplied", rec.run_context is None)
+    check("model_requested defaults to None when not supplied", rec.model_requested is None)
+
+    attributed = ResultMessage(
+        subtype="success", duration_ms=39973, duration_api_ms=46363,
+        is_error=False, num_turns=4, session_id="sess-attr",
+        stop_reason="end_turn", total_cost_usd=0.044673,
+        usage={"input_tokens": 5538, "output_tokens": 5564},
+        model_usage={"claude-haiku-4-5-20251001": {"input_tokens": 5538},
+                     "claude-3-5-haiku-20241022": {"input_tokens": 120}},
+        permission_denials=[], errors=None)
+    ra = chain.record_from_result(attributed, run_context="visible_injection",
+                                  model_requested=chain.MODEL)
+    check("run_context carried (scenario attribution, config provenance)",
+          ra.run_context == "visible_injection")
+    check("model_requested carried (the model we ASKED for)",
+          ra.model_requested == chain.MODEL)
+    check("models_used = sorted model_usage keys (the models that RAN)",
+          ra.models_used == ["claude-3-5-haiku-20241022", "claude-haiku-4-5-20251001"])
+    check("api_ms > duration_ms mapped verbatim (no 'total >= api' assumption)",
+          ra.duration_api_ms > ra.duration_ms)
+    check("models_used is a flat list of names (no per-model usage dicts copied)",
+          all(isinstance(m, str) for m in ra.models_used))
+    check("empty model_usage -> [] (present-but-empty distinct from absent)",
+          chain.record_from_result(ResultMessage(
+              subtype="success", duration_ms=1, duration_api_ms=1, is_error=False,
+              num_turns=1, session_id="s2", model_usage={})).models_used == [])
+    check("default run_context = fixture stem (zero-effort attribution)",
+          chain._default_run_context("fixtures/offer_atlas_banque.html")
+          == "offer_atlas_banque")
 
     maxturns = ResultMessage(
         subtype="error_max_turns", duration_ms=33000, duration_api_ms=30000,
@@ -431,6 +466,14 @@ def main():
         check("line 0 round-trips to the same dict", json.loads(_lines[0]) == asdict(rec))
         check("line 1 is the second record",
               json.loads(_lines[1])["subtype"] == "error_max_turns")
+        chain.append_jsonl(ra, _log)
+        _lines = _log.read_text(encoding="utf-8").splitlines()
+        check("attributed record appends as third line", len(_lines) == 3)
+        check("attributed line round-trips (19-key schema)",
+              json.loads(_lines[2]) == asdict(ra))
+        check("absence vs emptiness distinct in the ledger (null vs list)",
+              json.loads(_lines[0])["models_used"] is None
+              and json.loads(_lines[2])["models_used"] is not None)
 
     print("\n" + "-" * 48)
     print("PASSED: " + str(_passed) + "   FAILED: " + str(_failed))

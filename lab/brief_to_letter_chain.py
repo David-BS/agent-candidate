@@ -911,12 +911,20 @@ class RunRecord:
     permission_denials: int   # count only (allow-list makes denials ~never fire)
     api_error_status: int | None
     total_cost_usd: float | None
-    duration_ms: int          # wall-clock total
-    duration_api_ms: int      # API time only; the gap is harness overhead
+    duration_ms: int          # captured as-is; pair semantics not pinned
+    duration_api_ms: int      # (live run showed api_ms > duration_ms -- no overhead derivation)
     input_tokens: int | None
     output_tokens: int | None
     cache_creation_input_tokens: int | None
     cache_read_input_tokens: int | None
+    # Attribution. `run_context` and `model_requested` are harness-owned
+    # (config provenance: the label and the model we ASKED for); `models_used`
+    # comes from upstream (the model names that actually RAN, utility models
+    # included). For `models_used`: None = field absent upstream, [] = present
+    # but empty -- absence and emptiness are kept distinct on purpose.
+    run_context: str | None = None
+    model_requested: str | None = None
+    models_used: list[str] | None = None
 
 
 def _usage_get(usage, key):
@@ -928,11 +936,23 @@ def _usage_get(usage, key):
     return value if isinstance(value, int) else None
 
 
-def record_from_result(result, tz=DEFAULT_TZ):
-    """Pure transform ResultMessage -> RunRecord. No I/O. The content-bearing
-    fields (`result`, `structured_output`) are deliberately not read."""
+def _default_run_context(offer_path):
+    """Fixture stem as a zero-effort attribution label (config provenance).
+    'lab/fixtures/offer_atlas_banque.html' -> 'offer_atlas_banque'."""
+    return Path(offer_path).stem
+
+
+def record_from_result(result, tz=DEFAULT_TZ, run_context=None, model_requested=None):
+    """Pure transform (ResultMessage + harness config) -> RunRecord. No I/O.
+    The content-bearing fields (`result`, `structured_output`) are deliberately
+    not read. From `model_usage` only the KEYS are copied (model names are pure
+    metadata); its values (per-model token/cost dicts) are not."""
     usage = getattr(result, "usage", None)
     denials = getattr(result, "permission_denials", None)
+    model_usage = getattr(result, "model_usage", None)
+    # None (absent upstream -> JSON null) vs {} (present but empty -> []) is
+    # preserved: a probe that collapses absence into emptiness is a silent no-op.
+    models_used = sorted(model_usage.keys()) if model_usage is not None else None
     return RunRecord(
         timestamp=datetime.datetime.now(ZoneInfo(tz)).isoformat(timespec="seconds"),
         session_id=getattr(result, "session_id", ""),
@@ -950,6 +970,9 @@ def record_from_result(result, tz=DEFAULT_TZ):
         output_tokens=_usage_get(usage, "output_tokens"),
         cache_creation_input_tokens=_usage_get(usage, "cache_creation_input_tokens"),
         cache_read_input_tokens=_usage_get(usage, "cache_read_input_tokens"),
+        run_context=run_context,
+        model_requested=model_requested,
+        models_used=models_used,
     )
 
 
@@ -963,7 +986,7 @@ def append_jsonl(record, path=DEFAULT_RUNS_LOG):
     return path
 
 
-async def run(offer_path):
+async def run(offer_path, run_context=None):
     from claude_agent_sdk import ClaudeSDKClient, ResultMessage, create_sdk_mcp_server
 
     server = create_sdk_mcp_server(name=SERVER_NAME, tools=build_tools())
@@ -978,7 +1001,8 @@ async def run(offer_path):
             if isinstance(message, ResultMessage):
                 result = message
         if result is not None:
-            log_path = append_jsonl(record_from_result(result))
+            log_path = append_jsonl(record_from_result(
+                result, run_context=run_context, model_requested=options.model))
             print("[run_record] appended -> " + str(log_path))
 
 
@@ -987,7 +1011,10 @@ def main():
     if not Path(offer_path).exists():
         print("Offer file not found: " + offer_path, file=sys.stderr)
         sys.exit(1)
-    asyncio.run(run(offer_path))
+    # argv[2] = optional free scenario label; default = fixture stem, so every
+    # ledger line is attributable with zero typing.
+    run_context = sys.argv[2] if len(sys.argv) > 2 else _default_run_context(offer_path)
+    asyncio.run(run(offer_path, run_context))
 
 
 if __name__ == "__main__":

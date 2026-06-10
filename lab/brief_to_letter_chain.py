@@ -214,7 +214,9 @@ import json
 import os
 import re
 import subprocess
+from dataclasses import asdict, dataclass
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 # ---------------------------------------------------------------------------
 # Run configuration (frozen-decision echoes: prepaid ceiling, per-run caps)
@@ -266,6 +268,12 @@ CANDIDATE_TIMEZONE = "Europe/Paris"
 # output_dir="." debt (a relative path silently followed the caller's CWD).
 # runs/ is gitignored: generated letters are local evidence, never tracked.
 OUTPUT_DIR = Path(__file__).parent / "runs"
+
+# Run telemetry (development observability). Same anchored, gitignored runs/ dir
+# as the letter output. See the RunRecord block (just above run()) for why this
+# is dev-only and metadata-only.
+DEFAULT_RUNS_LOG = OUTPUT_DIR / "runs.jsonl"
+DEFAULT_TZ = "Europe/Paris"
 
 
 def resolve_suite_paths():
@@ -867,8 +875,96 @@ def build_agent_options():
     )
 
 
+# ---------------------------------------------------------------------------
+# Run telemetry — RunRecord (development observability)
+# ---------------------------------------------------------------------------
+# A RunRecord is a deterministic, metadata-only projection of the SDK's
+# ResultMessage (Agent SDK v0.2.93), appended as one JSONL line under runs/.
+# It turns the cost / latency / outcome figures we already read by eye at the
+# end of every run into structured, queryable data.
+#
+# Provenance -- why this is DEV observability: ResultMessage is a HARNESS-side
+# artifact; the agent loop emits it. When agent-candidate ships as a remote MCP
+# server, the CLIENT runs the loop and owns this telemetry -- the server never
+# sees num_turns or total_cost_usd. The record PATTERN (project a result, append
+# JSONL) is portable; its current SOURCE is not. At deployment the same pattern
+# is re-fed by tool-side events.
+#
+# Hygiene -- metadata, never content: ResultMessage carries two content-bearing
+# fields, `result` (the final assistant text = the cover letter) and
+# `structured_output`. Neither is copied here. A log that captured the letter
+# body would, at deployment, become a PII sink -- "letter as exfiltration
+# channel" relocated to a file on disk. (The SDK reasons the same way: it
+# annotates `api_error_status` "Safe to log (no message content)".)
+
+@dataclass
+class RunRecord:
+    """Metadata-only projection of a ResultMessage. JSON-serialisable."""
+
+    timestamp: str            # script stamps the real clock at write time
+    session_id: str
+    subtype: str
+    is_error: bool
+    stop_reason: str | None
+    num_turns: int
+    errors: list[str] | None
+    permission_denials: int   # count only (allow-list makes denials ~never fire)
+    api_error_status: int | None
+    total_cost_usd: float | None
+    duration_ms: int          # wall-clock total
+    duration_api_ms: int      # API time only; the gap is harness overhead
+    input_tokens: int | None
+    output_tokens: int | None
+    cache_creation_input_tokens: int | None
+    cache_read_input_tokens: int | None
+
+
+def _usage_get(usage, key):
+    # `usage` is an untyped dict passed verbatim from the CLI; read defensively.
+    # A missing key yields None; a real 0 is preserved as 0.
+    if not usage:
+        return None
+    value = usage.get(key)
+    return value if isinstance(value, int) else None
+
+
+def record_from_result(result, tz=DEFAULT_TZ):
+    """Pure transform ResultMessage -> RunRecord. No I/O. The content-bearing
+    fields (`result`, `structured_output`) are deliberately not read."""
+    usage = getattr(result, "usage", None)
+    denials = getattr(result, "permission_denials", None)
+    return RunRecord(
+        timestamp=datetime.datetime.now(ZoneInfo(tz)).isoformat(timespec="seconds"),
+        session_id=getattr(result, "session_id", ""),
+        subtype=result.subtype,
+        is_error=result.is_error,
+        stop_reason=getattr(result, "stop_reason", None),
+        num_turns=result.num_turns,
+        errors=getattr(result, "errors", None),
+        permission_denials=len(denials) if denials else 0,
+        api_error_status=getattr(result, "api_error_status", None),
+        total_cost_usd=getattr(result, "total_cost_usd", None),
+        duration_ms=result.duration_ms,
+        duration_api_ms=result.duration_api_ms,
+        input_tokens=_usage_get(usage, "input_tokens"),
+        output_tokens=_usage_get(usage, "output_tokens"),
+        cache_creation_input_tokens=_usage_get(usage, "cache_creation_input_tokens"),
+        cache_read_input_tokens=_usage_get(usage, "cache_read_input_tokens"),
+    )
+
+
+def append_jsonl(record, path=DEFAULT_RUNS_LOG):
+    """Append one record as a single JSON line. Creates runs/ if needed.
+    The only I/O here; append-only (a run log is a ledger, not state)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    line = json.dumps(asdict(record), ensure_ascii=False)
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(line + "\n")
+    return path
+
+
 async def run(offer_path):
-    from claude_agent_sdk import ClaudeSDKClient, create_sdk_mcp_server
+    from claude_agent_sdk import ClaudeSDKClient, ResultMessage, create_sdk_mcp_server
 
     server = create_sdk_mcp_server(name=SERVER_NAME, tools=build_tools())
     options = build_agent_options()
@@ -876,8 +972,14 @@ async def run(offer_path):
 
     async with ClaudeSDKClient(options=options) as client:
         await client.query(build_user_prompt(offer_path))
+        result = None
         async for message in client.receive_response():
             print(message)
+            if isinstance(message, ResultMessage):
+                result = message
+        if result is not None:
+            log_path = append_jsonl(record_from_result(result))
+            print("[run_record] appended -> " + str(log_path))
 
 
 def main():

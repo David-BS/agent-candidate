@@ -29,10 +29,14 @@ Exits 0 if every check passes, 1 otherwise.
 """
 
 import asyncio
+import json
 import sys
+import tempfile
+from dataclasses import asdict
 from pathlib import Path
 
 import brief_to_letter_chain as chain
+from claude_agent_sdk.types import ResultMessage
 
 CANARY_BY_FIXTURE = {
     "offer_atlas_banque.html": "INJECTION-OK-ATLAS-7F3",
@@ -361,6 +365,72 @@ def main():
     check("model is Haiku", options.model == chain.MODEL)
     check("max_turns == 8", options.max_turns == 8)
     check("max_budget_usd == 0.10", options.max_budget_usd == 0.10)
+
+    print("\n[R] Run telemetry -- RunRecord projection (no agent run, no API)")
+    # Two known ResultMessages: a clean success and the max_turns loop. The
+    # transform is pure and channel-independent, so these checks run identically
+    # for every fixture (they add the same 26 to each fixture's tally).
+    success = ResultMessage(
+        subtype="success", duration_ms=17000, duration_api_ms=15200,
+        is_error=False, num_turns=3, session_id="sess-success",
+        stop_reason="end_turn", total_cost_usd=0.046,
+        usage={"input_tokens": 1200, "output_tokens": 1699,
+               "cache_creation_input_tokens": 4189, "cache_read_input_tokens": 0},
+        result="Madame, Monsieur, je suis vivement interesse ...",      # CONTENT
+        structured_output={"letter_path": "runs/letter.docx"},          # CONTENT
+        permission_denials=[], errors=None)
+    rec = chain.record_from_result(success)
+    check("subtype mapped", rec.subtype == "success")
+    check("is_error mapped", rec.is_error is False)
+    check("stop_reason mapped", rec.stop_reason == "end_turn")
+    check("num_turns mapped", rec.num_turns == 3)
+    check("total_cost_usd mapped (name pinned from SDK source)", rec.total_cost_usd == 0.046)
+    check("session_id mapped", rec.session_id == "sess-success")
+    check("latency split captured (total + api)",
+          rec.duration_ms == 17000 and rec.duration_api_ms == 15200)
+    check("harness overhead derivable", rec.duration_ms - rec.duration_api_ms == 1800)
+    check("input_tokens from usage dict", rec.input_tokens == 1200)
+    check("output_tokens from usage dict", rec.output_tokens == 1699)
+    check("cache_creation from usage dict", rec.cache_creation_input_tokens == 4189)
+    check("real 0 preserved (not coerced to None)", rec.cache_read_input_tokens == 0)
+    _d = asdict(rec)
+    check("letter body (result) absent from record", "result" not in _d)
+    check("structured_output absent from record", "structured_output" not in _d)
+    check("no content string leaks into the serialised line",
+          "vivement interesse" not in json.dumps(_d, ensure_ascii=False))
+
+    maxturns = ResultMessage(
+        subtype="error_max_turns", duration_ms=33000, duration_api_ms=30000,
+        is_error=True, num_turns=9, session_id="sess-loop",
+        stop_reason="tool_use", total_cost_usd=0.033,
+        usage={"input_tokens": 900, "cache_read_input_tokens": 87000},
+        result=None, permission_denials=[],
+        errors=["Reached maximum number of turns (8)"])
+    rec2 = chain.record_from_result(maxturns)
+    check("error run flagged", rec2.is_error is True)
+    check("guardrail subtype captured", rec2.subtype == "error_max_turns")
+    check("error strings captured verbatim",
+          rec2.errors == ["Reached maximum number of turns (8)"])
+    check("stop_reason on loop captured", rec2.stop_reason == "tool_use")
+    check("empty denials -> count 0", rec2.permission_denials == 0)
+
+    partial = ResultMessage(
+        subtype="success", duration_ms=10, duration_api_ms=9, is_error=False,
+        num_turns=1, session_id="s", total_cost_usd=None, usage=None)
+    rp = chain.record_from_result(partial)
+    check("missing cost -> None, no crash", rp.total_cost_usd is None)
+    check("missing usage -> token fields None", rp.input_tokens is None)
+    check("missing usage key -> None", rp.cache_read_input_tokens is None)
+
+    with tempfile.TemporaryDirectory() as _tmp:
+        _log = Path(_tmp) / "runs.jsonl"
+        chain.append_jsonl(rec, _log)
+        chain.append_jsonl(rec2, _log)
+        _lines = _log.read_text(encoding="utf-8").splitlines()
+        check("two appends -> two lines", len(_lines) == 2)
+        check("line 0 round-trips to the same dict", json.loads(_lines[0]) == asdict(rec))
+        check("line 1 is the second record",
+              json.loads(_lines[1])["subtype"] == "error_max_turns")
 
     print("\n" + "-" * 48)
     print("PASSED: " + str(_passed) + "   FAILED: " + str(_failed))

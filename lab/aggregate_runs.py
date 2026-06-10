@@ -27,9 +27,8 @@ Hygiene: the reader touches only metadata keys. ResultMessage's content-bearing
 fields (`result`, `structured_output`) were never projected into the ledger; if
 a malformed line carried one, the reader still never reads it.
 
-Currency: USD is native (total_cost_usd). The roadmap budget ceiling is in EUR;
-no FX rate is frozen here -- the report prints USD and reminds the reader to
-convert mentally. Output is ASCII-only (Phase 1 cp1252 console lesson).
+Currency: cost is native USD (total_cost_usd); no exchange rate is applied.
+Output is ASCII-only (cp1252 console lesson).
 
     python aggregate_runs.py [path/to/runs.jsonl]
 """
@@ -271,8 +270,7 @@ def format_report(agg, n_malformed=0, source=""):
     if agg.n_cost_missing:
         burn_line += "  (%d without cost)" % agg.n_cost_missing
     out.append(burn_line)
-    out.append("  budget ceiling (roadmap s3): ~100-200 EUR / 1-2 months "
-               "-- no frozen FX rate, convert mentally")
+    out.append("  (USD native; no exchange rate applied)")
 
     out.append("")
     out.append("Burn by scenario")

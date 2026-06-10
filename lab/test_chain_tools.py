@@ -475,6 +475,102 @@ def main():
               json.loads(_lines[0])["models_used"] is None
               and json.loads(_lines[2])["models_used"] is not None)
 
+    print("\n[G] Aggregate reader -- pure transform over a heterogeneous ledger")
+    # The reader is a SEPARATE dev-side consumer of runs/runs.jsonl; it imports
+    # nothing from the agent module. Proven here on FORGED lines spanning both
+    # heterogeneity axes (attribution: 16-key / 19-key / 19-key-null-context;
+    # tokens: complete / null-hole / real-0) x outcome (success / error).
+    # Two of the lines come from the REAL recorder (asdict of ra / rec above),
+    # so the floor proves the reader consumes exactly what record_from_result
+    # emits -- the rest are hand-forged for cases the recorder cannot easily
+    # produce (an old 16-key line, a token hole, a missing cost, a content leak).
+    import aggregate_runs as ar
+
+    # The real historical ledger line (16-key, pre-attribution), pasted verbatim.
+    real16 = {
+        "timestamp": "2026-06-10T15:45:08+02:00",
+        "session_id": "58079c93-75c8-4b9d-a582-a4f7560202a4",
+        "subtype": "success", "is_error": False, "stop_reason": "end_turn",
+        "num_turns": 4, "errors": None, "permission_denials": 0,
+        "api_error_status": None, "total_cost_usd": 0.044673,
+        "duration_ms": 39973, "duration_api_ms": 46363,
+        "input_tokens": 5538, "output_tokens": 5564,
+        "cache_creation_input_tokens": 8544, "cache_read_input_tokens": 0,
+    }
+    attr19 = asdict(ra)        # real recorder output: 19-key, run_context set
+    null_ctx = asdict(rec)     # real recorder output: 19-key, run_context NULL
+    tok_null = dict(real16, session_id="s-toknull", input_tokens=None)
+    cost_null = dict(real16, session_id="s-costnull", total_cost_usd=None)
+    err_line = dict(real16, session_id="s-err", is_error=True,
+                    subtype="error_max_turns")
+    cold0 = dict(real16, session_id="s-cold", cache_read_input_tokens=0)
+    holeN = dict(real16, session_id="s-hole", cache_read_input_tokens=None)
+    with_content = dict(real16, session_id="s-content",
+                        result="CANARY-LETTER-BODY-DO-NOT-LEAK")
+
+    recs = [real16, attr19, null_ctx, tok_null, cost_null, err_line]
+    a = ar.aggregate(recs)
+
+    check("aggregate counts every line", a.n_total == 6)
+    check("success/error split (5 ok, 1 err)",
+          a.n_success == 5 and a.n_error == 1)
+
+    # Burn: rounded equality only -- never assert exact float sums (1-ULP trap).
+    _priced = [r for r in recs if isinstance(r.get("total_cost_usd"), (int, float))]
+    _exp_burn = sum(r["total_cost_usd"] for r in _priced)
+    check("burn sums priced runs only (rounded compare)",
+          round(a.burn_usd, 6) == round(_exp_burn, 6))
+    check("cost-null excluded from burn (present 5, missing 1)",
+          a.n_cost_present == 5 and a.n_cost_missing == 1)
+
+    _by = {s.label: s for s in a.by_scenario}
+    check("a run_context value gets its own scenario bucket",
+          "visible_injection" in _by and _by["visible_injection"].n == 1)
+    check("absent AND null run_context both fall to unattributed "
+          "(value test, not key test)",
+          ar.UNATTRIBUTED in _by and _by[ar.UNATTRIBUTED].n == 5)
+    check("per-scenario burn ventilation sums back to the global burn",
+          round(sum(s.burn_usd for s in a.by_scenario), 6) == round(a.burn_usd, 6))
+
+    # attr19 from real recorder carried usage with NO cache fields -> token hole.
+    check("token-complete vs unavailable split (4 complete, 2 holes)",
+          a.n_token_complete == 4 and a.n_token_unavailable == 2)
+    check("cache_read total is 0 (cold-start ledger), summed not dropped",
+          a.cache_read_tokens == 0)
+
+    _pair = ar.aggregate([cold0, holeN])
+    check("real 0 is DATA, null is a HOLE: cache_read 0 counts, null excluded",
+          _pair.n_token_complete == 1 and _pair.n_token_unavailable == 1)
+    check("warm-cache reuse is 0% on a cold line (not None)",
+          _pair.reuse_rate == 0.0)
+    _nomix = ar.aggregate([tok_null])
+    check("no token-complete line -> reuse rate None (not a fake 0%)",
+          _nomix.reuse_rate is None and _nomix.n_token_complete == 0)
+
+    check("latency captured raw, no derived overhead field",
+          a.mean_duration_ms is not None and a.mean_duration_api_ms is not None
+          and "overhead" not in asdict(a))
+
+    _rep = ar.format_report(ar.aggregate([with_content]))
+    check("reader never surfaces content (a result field is ignored)",
+          "CANARY-LETTER-BODY" not in _rep)
+    check("report is ASCII-safe (cp1252 console -- Phase 1 lesson)",
+          ar.format_report(a).isascii())
+
+    with tempfile.TemporaryDirectory() as _gtmp:
+        _gp = Path(_gtmp) / "runs.jsonl"
+        _gp.write_text(
+            json.dumps(real16) + "\n"
+            + "\n"                     # blank line -> skipped
+            + "{not valid json\n"      # malformed -> counted, skipped
+            + json.dumps(err_line) + "\n",
+            encoding="utf-8")
+        _loaded, _malformed = ar.load_ledger(_gp)
+        check("load skips blank + malformed, keeps valid lines",
+              len(_loaded) == 2 and _malformed == 1)
+        check("loaded heterogeneous ledger aggregates without crashing",
+              ar.aggregate(_loaded).n_total == 2)
+
     print("\n" + "-" * 48)
     print("PASSED: " + str(_passed) + "   FAILED: " + str(_failed))
     sys.exit(1 if _failed else 0)

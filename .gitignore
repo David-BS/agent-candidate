@@ -14,6 +14,7 @@ out/
 output/
 lettre_*.txt
 Cover_Letter_*.txt
+Cover_Letter_*.docx
 
 # --- Personal steering documents (FR, not for distribution) — belt and suspenders:
 # they live outside the repo root by design; these patterns are the backstop ---

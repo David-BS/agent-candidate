@@ -73,8 +73,11 @@ CANDIDATE_TIMEZONE = "Europe/Paris"
 # Output directory anchored to THIS file, not the CWD -- settles the
 # output_dir="." debt (a relative path silently followed the caller's CWD).
 # runs/ is gitignored: generated letters are local evidence, never tracked.
-OUTPUT_DIR = Path(__file__).parent / "runs"
-
+# Overridable by env for DEPLOYMENT: the frozen binary cannot write next to
+# itself (read-only / temp extract), so the host points OUTPUT_DIR at a
+# user-writable dir (manifest user_config / ${HOME}); unset -> next to module.
+OUTPUT_DIR = Path(os.environ.get(
+    "AGENT_CANDIDATE_OUTPUT_DIR", str(Path(__file__).parent / "runs")))
 
 def resolve_suite_paths():
     """Resolve and validate the real-suite paths (letter + brief back-ends).

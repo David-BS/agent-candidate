@@ -19,11 +19,19 @@ Run locally in the venv (needs `pip install mcp` alongside claude-agent-sdk):
 """
 
 import asyncio
+import os
 import subprocess
 import sys
+from pathlib import Path
+
+# dev/ship split: chain_core + server.py moved to ../server. This parity test is
+# DEV-side and imports BOTH seams directly (the ship server AND the dev core), so
+# it reaches into server/ like the harness does.
+_SERVER_DIR = Path(__file__).resolve().parent.parent / "server"
+if str(_SERVER_DIR) not in sys.path:
+    sys.path.insert(0, str(_SERVER_DIR))
 
 import chain_core as core
-
 
 def check(label, cond):
     print(("[PASS] " if cond else "[FAIL] ") + label)
@@ -40,7 +48,11 @@ def s1_core_is_sdk_free():
         "assert 'mcp' not in sys.modules, 'mcp leaked'; "
         "print('ok')"
     )
-    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    # The clean subprocess inherits no sys.path insert from this process; point it
+    # at ../server via PYTHONPATH so it can import the moved chain_core.
+    env = {**os.environ, "PYTHONPATH": str(_SERVER_DIR)}
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env)
+
     return check("[S1] chain_core imports SDK-free (no claude_agent_sdk, no mcp)",
                  r.returncode == 0 and r.stdout.strip() == "ok")
 

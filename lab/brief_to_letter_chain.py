@@ -44,6 +44,22 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import os
+
+# dev/ship split: the trust core (chain_core) and the nu server (server.py) moved
+# to ../server -- that directory is exactly what the .mcpb bundles. Put it on
+# sys.path so this DEV harness imports the SAME chain_core the ship server bundles
+# (single source). The ship seam needs no such insert: server.py sits beside
+# chain_core and resolves it via the script dir. Keep dev output in lab/runs (next
+# to this harness) via the env default, so the gitignored evidence never lands in
+# the server/ dir we freeze into the binary -- and the floor's OUTPUT_DIR
+# assertion stays true with no edit to the floor.
+_SERVER_DIR = Path(__file__).resolve().parent.parent / "server"
+if str(_SERVER_DIR) not in sys.path:
+    sys.path.insert(0, str(_SERVER_DIR))
+os.environ.setdefault(
+    "AGENT_CANDIDATE_OUTPUT_DIR", str(Path(__file__).resolve().parent / "runs"))
+
 import chain_core as core
 
 # Re-export the trust core unchanged, so `from brief_to_letter_chain import X`

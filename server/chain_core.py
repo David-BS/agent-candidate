@@ -43,6 +43,7 @@ import datetime
 import json
 import os
 import re
+import runpy
 import subprocess
 import sys
 from pathlib import Path
@@ -102,6 +103,63 @@ def resolve_suite_paths():
     if missing:
         raise RuntimeError("candidate-suite file(s) not found: " + ", ".join(missing))
     return paths
+
+
+# ---------------------------------------------------------------------------
+# Real-suite invocation -- DEV (direct script) vs FROZEN (self-re-exec)
+# ---------------------------------------------------------------------------
+# Logical kind -> resolve_suite_paths() key of its back-end script. Single source
+# for both the wrapper (which side to call) and the dispatch (which to run).
+SUITE_KIND_TO_PATHKEY = {"letter": "fill_script", "brief": "brief_script"}
+
+
+def _suite_command(kind, script_path, script_args):
+    """Build the argv that invokes a real candidate-suite script.
+
+    DEV (not frozen): sys.executable is a real Python, so we run the external
+    .py directly -- byte-identical to the historical wrapper. The floor is
+    therefore unchanged on this path (the survival proof).
+
+    FROZEN (PyInstaller binary): sys.executable IS this binary, NOT a Python, so
+    it cannot run an external .py. We re-exec OURSELVES with `--run <kind>`; the
+    early dispatch (dispatch_suite_run, called before any MCP init) resolves the
+    script by <kind> and runs it IN THIS true child process, which sys.exit()s
+    for real -- so candidate-suite's refusal contract (exit 1 / exit 2 / one-page
+    cap) is preserved MECHANICALLY (an in-process import would re-interpret it as
+    SystemExit/return, the trap flagged for option A). script_args pass through
+    UNCHANGED: the script's own argparse sees the same argv it sees today.
+    """
+    if getattr(sys, "frozen", False):
+        return [sys.executable, "--run", kind, *script_args]
+    return [sys.executable, str(script_path), *script_args]
+
+
+def dispatch_suite_run(argv):
+    """Early self-re-exec entry. MUST run at the very top of the binary entry
+    point, BEFORE any MCP server is started.
+
+    When the frozen binary is re-exec'd as `<binary> --run <kind> <script-args>`,
+    resolve the candidate-suite script by <kind>, set sys.argv to the SCRIPT's
+    own argv, and runpy-execute it in THIS process. In that case it does not
+    return: the script sys.exit()s and that real exit code propagates out (the
+    refusal contract, conserved by the process boundary). Returns None when
+    `--run` is absent, so the caller proceeds to start the server normally.
+
+    Why position matters: a frozen child that fell through to server startup
+    would spawn a SECOND MCP server (and could re-spawn) -> recursive spawn (the
+    multiprocessing pitfall). Dispatching first is the guard.
+    """
+    if len(argv) < 2 or argv[0] != "--run":
+        return None  # not a re-exec; caller starts the server normally
+    kind = argv[1]
+    pathkey = SUITE_KIND_TO_PATHKEY.get(kind)
+    if pathkey is None:
+        sys.stderr.write("agent-candidate: unknown --run kind " + repr(kind) + "\n")
+        sys.exit(1)
+    script = str(resolve_suite_paths()[pathkey])
+    sys.argv = [script, *argv[2:]]               # the script's own argv, verbatim
+    runpy.run_path(script, run_name="__main__")  # the script may sys.exit()
+    sys.exit(0)                                  # returned without exiting -> success
 
 
 # Candidate profile -- TRUSTED provenance, fictional data only (frozen
@@ -248,14 +306,13 @@ def build_brief(data, output_dir=None):
         labels = {}
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    cmd = [
-        sys.executable, str(paths["brief_script"]),
+    cmd = _suite_command("brief", paths["brief_script"], [
         "--language", language,
         "--output-dir", str(out_dir),
         "--timezone", CANDIDATE_TIMEZONE,
         "--data-json", json.dumps(payload, ensure_ascii=False),
         "--labels-json", json.dumps(labels, ensure_ascii=False),
-    ]
+    ])
     # MSYS2 / Git Bash on Windows rewrites arguments that look like Unix paths
     # ("Europe/Paris" -> "Europe\Paris") BEFORE they reach the child, which
     # breaks the IANA zone lookup. MSYS_NO_PATHCONV=1 disables that mangling for
@@ -448,13 +505,12 @@ def build_letter(data, output_dir=None):
     # surface, Windows included); sys.executable pins the venv interpreter
     # (python-docx lives there); UTF-8 forced in the child env so the script's
     # emoji prints can never crash on a cp1252 console (debt settled).
-    cmd = [
-        sys.executable, str(paths["fill_script"]),
+    cmd = _suite_command("letter", paths["fill_script"], [
         "--language", language,
         "--template-path", str(paths["template"]),
         "--output-path", str(out_path),
         "--data-json", json.dumps(payload, ensure_ascii=False),
-    ]
+    ])
     child_env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
     proc = subprocess.run(
         cmd, shell=False, capture_output=True, text=True,

@@ -32,6 +32,7 @@ the JSON-RPC transport -- never print to stdout here).
 """
 
 import asyncio
+import sys
 
 import mcp.server.stdio
 import mcp.types as types
@@ -110,4 +111,9 @@ async def main():
 
 
 if __name__ == "__main__":
+    # Self-re-exec / redispatch guard (frozen binary). If we were spawned as
+    # `<binary> --run <kind> ...`, run the candidate-suite script and exit HERE,
+    # BEFORE starting the MCP server -- otherwise the child would start a second
+    # server (recursive spawn). A normal launch carries no --run and proceeds.
+    core.dispatch_suite_run(sys.argv[1:])
     asyncio.run(main())

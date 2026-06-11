@@ -366,6 +366,101 @@ def main():
     check("max_turns == 8", options.max_turns == 8)
     check("max_budget_usd == 0.10", options.max_budget_usd == 0.10)
 
+    print("\n[8] Frozen self-re-exec entry -- ship invocation path (no binary needed)")
+    import os as _os
+    import subprocess as _sp
+    import chain_core as core
+
+    # [8a] _suite_command: the frozen GATE. Dev path = direct script (byte-equal
+    # to history -> the 121 floor above is the survival proof for it); frozen path
+    # = re-exec self with `--run <kind>`. We force the flag both ways; no binary.
+    _frozen_saved = getattr(sys, "frozen", None)
+    try:
+        if hasattr(sys, "frozen"):
+            del sys.frozen
+        _dev = core._suite_command("letter", "/x/fill.py", ["--language", "fr"])
+        check("dev (not frozen): direct external-script invocation, unchanged",
+              _dev == [sys.executable, "/x/fill.py", "--language", "fr"])
+        sys.frozen = True
+        _froz = core._suite_command("letter", "/x/fill.py", ["--language", "fr"])
+        check("frozen: self re-exec as [--run <kind>], NOT the external script",
+              _froz == [sys.executable, "--run", "letter", "--language", "fr"])
+        check("frozen & dev forward identical script args (only the head differs)",
+              _froz[3:] == _dev[2:] == ["--language", "fr"])
+    finally:
+        if _frozen_saved is None:
+            if hasattr(sys, "frozen"):
+                del sys.frozen
+        else:
+            sys.frozen = _frozen_saved
+
+    # [8b] dispatch_suite_run guard: ONLY `--run <kind>` triggers a re-exec; any
+    # other argv returns None so the server starts. Unknown kind -> loud exit 1.
+    check("no --run -> None (normal server launch proceeds)",
+          core.dispatch_suite_run([]) is None
+          and core.dispatch_suite_run(["serve"]) is None
+          and core.dispatch_suite_run(["--run"]) is None)
+    try:
+        core.dispatch_suite_run(["--run", "__nope__"])
+        check("unknown --run kind exits (it did not)", False)
+    except SystemExit as _e:
+        check("unknown --run kind -> exit 1 (loud, before any server start)",
+              _e.code == 1)
+
+    # [8c] forwarding contract: dispatch resolves the back-end by kind and hands
+    # it the SCRIPT's own argv VERBATIM. Proven WITHOUT running the script (spy on
+    # runpy.run_path) -- isolates the dispatch's job from the script's behaviour
+    # (pinned already in [4b]/[4c]/[5]/[6]). Uses the real suite to resolve paths.
+    _spy = {}
+    _orig_run_path = core.runpy.run_path
+    _argv_saved = list(sys.argv)
+    try:
+        core.runpy.run_path = lambda p, run_name=None: _spy.update(
+            script=p, argv=list(sys.argv))
+        for _kind, _key in core.SUITE_KIND_TO_PATHKEY.items():
+            _spy.clear()
+            try:
+                core.dispatch_suite_run(["--run", _kind, "--flag", "val-" + _kind])
+            except SystemExit:
+                pass  # dispatch sys.exit(0)s after the (spied) run
+            _expected = str(core.resolve_suite_paths()[_key])
+            check("dispatch '" + _kind + "' resolves the right back-end script",
+                  _spy.get("script") == _expected)
+            check("dispatch '" + _kind + "' forwards the script's own argv verbatim",
+                  _spy.get("argv") == [_expected, "--flag", "val-" + _kind])
+    finally:
+        core.runpy.run_path = _orig_run_path
+        sys.argv = _argv_saved
+
+    # [8d] end-to-end through the ship entry (server.py) as a subprocess -- the
+    # only check exercising the __main__ wiring + REAL exit-code propagation. No
+    # frozen binary: `python server.py --run <kind>` takes the same dispatch the
+    # binary will. (i) unknown kind -> exit 1 proves the guard runs BEFORE the
+    # server (a fallthrough would block on stdio, never returning). (ii) a brief
+    # whose critical field is the __MISSING__ sentinel -> the REAL script's exit 2
+    # rides out through the binary entry: the refusal contract is conserved.
+    _server_py = str(Path(__file__).resolve().parent.parent / "server" / "server.py")
+    _env = {**_os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8",
+            "MSYS_NO_PATHCONV": "1"}
+    _r1 = _sp.run([sys.executable, _server_py, "--run", "__nope__"],
+                  capture_output=True, text=True, env=_env)
+    check("server.py --run <unknown> -> exit 1 (dispatch fires before serving)",
+          _r1.returncode == 1)
+    with tempfile.TemporaryDirectory() as _btmp:
+        _refuse = {f: ("" if f != "company_name" else core.MISSING_SENTINEL)
+                   for f in core.BRIEF_MODEL_FIELDS}
+        _refuse["requirements"] = []
+        _r2 = _sp.run(
+            [sys.executable, _server_py, "--run", "brief",
+             "--language", "fr", "--output-dir", _btmp,
+             "--timezone", core.CANDIDATE_TIMEZONE,
+             "--data-json", json.dumps(_refuse, ensure_ascii=False),
+             "--labels-json", json.dumps(NOMINAL_LABELS, ensure_ascii=False)],
+            capture_output=True, text=True, env=_env)
+        check("server.py --run brief (critical field __MISSING__) -> exit 2 "
+              "(real refusal rides out through the binary entry)",
+              _r2.returncode == 2)
+
     print("\n[R] Run telemetry -- RunRecord projection (no agent run, no API)")
     # Known ResultMessages: a clean success, the max_turns loop, and an
     # attributed run (real corroboration-run latencies, api > wall). The

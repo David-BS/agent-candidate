@@ -1,0 +1,57 @@
+name: Floor
+
+# Deterministic-floor gate. Runs lab/test_chain_tools.py -- the tool-side floor
+# that exercises the REAL candidate-suite back-end OUTSIDE the agent loop (no
+# Claude API call, no tokens). It is a SCRIPT, not a pytest suite (its own
+# main()/check(), exits 0/1), so it is invoked directly, not via pytest.
+#
+# Cross-repo wiring (NEW -- candidate-suite's own CI has no such thing): the
+# floor needs the real scripts, located via CANDIDATE_SUITE_DIR. We check out
+# candidate-suite as a sibling, PINNED TO AN IMMUTABLE SHA so a "deterministic
+# floor" cannot drift the day candidate-suite moves. candidate-suite is public,
+# so no token is needed. ubuntu-latest only: the floor logic is OS-agnostic; the
+# per-platform matrix belongs to the (future) PyInstaller build, not here.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  floor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout agent-candidate
+        uses: actions/checkout@v6
+        # primary checkout -> $GITHUB_WORKSPACE
+
+      - name: Checkout candidate-suite (sibling real-suite back-end, pinned)
+        uses: actions/checkout@v6
+        with:
+          repository: David-BS/candidate-suite
+          # Immutable pin (release/1.0.0, merge of PR #21). Swap for a tag like
+          # v1.0.0 if you prefer legibility over immutability -- but a moving ref
+          # would make the "deterministic floor" depend on a third-party repo.
+          ref: 2863162ee8bdb6260dd6d0c99621115a5b89cb6a
+          path: candidate-suite        # -> $GITHUB_WORKSPACE/candidate-suite
+          # public repo -> no `token:` needed
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies (pinned)
+        run: pip install -r requirements.txt
+
+      - name: Wire CANDIDATE_SUITE_DIR
+        run: echo "CANDIDATE_SUITE_DIR=$GITHUB_WORKSPACE/candidate-suite" >> "$GITHUB_ENV"
+
+      - name: Run deterministic floor
+        run: python lab/test_chain_tools.py
+        # The floor imports claude_agent_sdk + mcp but makes NO API call, so this
+        # job needs no API secret; contents: read is sufficient.

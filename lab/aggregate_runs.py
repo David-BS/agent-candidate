@@ -35,7 +35,7 @@ Output is ASCII-only (cp1252 console lesson).
 
 import json
 import sys
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from pathlib import Path
 
 DEFAULT_LEDGER = Path(__file__).resolve().parent / "runs" / "runs.jsonl"

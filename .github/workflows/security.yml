@@ -1,0 +1,38 @@
+name: Security
+
+# Security gate (SAST). On every pull request to main (and on pushes to main),
+# the shippable code must pass a Bandit scan. With branch protection requiring
+# this check, nothing merges into main unless it is green. Mirrors the quality
+# gate: the tool is pip-installed and pinned (no marketplace action -> no Node
+# runtime debt). Configuration lives in pyproject.toml under [tool.bandit]
+# (single source of truth): subprocess in the safe list form is skipped
+# (B404/B603) with documented rationale, B602 (shell=True) and B607 (partial
+# path) stay ACTIVE, and lab/ (dev-only scaffolding) is excluded so the scan
+# targets server/, the code that ships.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install tooling
+        run: pip install "bandit[toml]==1.9.4"
+
+      - name: Bandit (SAST)
+        run: bandit -c pyproject.toml -r .

@@ -1,0 +1,32 @@
+# Dependabot -- keeps both the GitHub Actions and the Python dependencies up to
+# date with monthly, low-noise pull requests.
+#
+# Unlike candidate-suite (no Python manifest -> github-actions only), this repo
+# DECLARES its Python dependencies in requirements.txt (real deps, lxml C-ext
+# included), so a `pip` ecosystem is added to track them -- which matters for a
+# reproducible PyInstaller build (a silent lxml/python-docx bump can break the
+# frozen binary, so we want the bump to arrive as a reviewable PR, not silently).
+
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"           # scans .github/workflows/
+    schedule:
+      interval: "monthly"    # low-noise; security/major bumps still surface
+    commit-message:
+      prefix: "ci"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "pip"
+    directory: "/"           # scans requirements.txt at the repo root
+    schedule:
+      interval: "monthly"
+    commit-message:
+      prefix: "deps"
+    labels:
+      - "dependencies"
+      - "python"
+    open-pull-requests-limit: 5

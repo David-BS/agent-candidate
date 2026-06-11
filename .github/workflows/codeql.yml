@@ -1,0 +1,47 @@
+name: CodeQL
+
+# Semantic security analysis (advanced setup, committed and reviewable). Runs on
+# every pull request to main, on pushes to main, and weekly on a schedule (so
+# newly published CodeQL queries are applied even when the code has not changed).
+# The `security-extended` query suite is broader than the default -- chosen
+# deliberately for a security-sensitive MCP server. Python is interpreted, so
+# there is no build step.
+#
+# Do NOT also enable CodeQL "default setup" in repo settings -- default and
+# advanced setup are mutually exclusive; this committed workflow IS the advanced
+# setup.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 6 * * 1"   # Mondays, 06:00 UTC
+
+jobs:
+  analyze:
+    name: Analyze (python)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write   # required to upload results to code scanning
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ["python"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-extended
+
+      # Python is interpreted -- no build step needed.
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:${{ matrix.language }}"

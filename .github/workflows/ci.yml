@@ -1,0 +1,41 @@
+name: CI
+
+# Quality gate. On every pull request to main (and on pushes to main), the code
+# must pass lint, a format check, and a compile sweep. With branch protection
+# requiring this check, nothing merges into main unless it is green. Same
+# standard as the candidate-suite toolchain: ruff handles both linting and
+# formatting; the repo is kept format-clean (see the "style: apply ruff format"
+# baseline commit), so `ruff format --check` is a true gate, not a reformat.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install tooling
+        run: pip install ruff==0.15.16
+
+      - name: Lint (ruff check)
+        run: ruff check .
+
+      - name: Format check (ruff format)
+        run: ruff format --check .
+
+      - name: Compile sweep (server + lab)
+        run: python -m compileall -q server lab

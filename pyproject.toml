@@ -1,0 +1,43 @@
+# Tooling configuration for the agent-candidate repository.
+# Single source of truth for ruff (lint + format) and bandit (SAST), mirrored
+# from the candidate-suite toolchain and adapted to this repo's layout
+# (server/ = what ships, lab/ = dev harness + deterministic floor).
+
+[tool.ruff]
+target-version = "py313"
+# line-length stays at ruff's default (88). E501 is not in the selected rule
+# set, so long lines (e.g. embedded prose in tool descriptions) are not flagged.
+
+[tool.ruff.lint]
+# Default rule set: pyflakes (F) + the import/statement/runtime subset of
+# pycodestyle (E4/E7/E9). Catches real problems (unused imports, undefined
+# names, f-strings without placeholders) without cosmetic style noise.
+select = ["E4", "E7", "E9", "F"]
+# E402 (import not at top of file) is ignored on purpose: the dev harness
+# reconfigures stdout/stderr to UTF-8 BEFORE its imports (a settled Phase-1
+# lesson), which is an organizational choice, not a defect.
+ignore = ["E402"]
+
+[tool.bandit]
+# Security gate (SAST). Bandit reads this section when invoked with
+# `bandit -c pyproject.toml -r .` (requires the `toml` extra).
+# Skips below are deliberate, documented exceptions -- adapted from
+# candidate-suite, NOT inherited blindly. The dangerous shell case (B602,
+# subprocess with shell=True) stays ACTIVE.
+#   B404  import subprocess            -- informational; chain_core invokes the
+#                                         real candidate-suite scripts as child
+#                                         processes (the proven process-boundary
+#                                         defence).
+#   B603  subprocess without shell=True -- this IS the safe form: every call is
+#                                         a fixed argument LIST with shell=False,
+#                                         the interpreter pinned via
+#                                         sys.executable and script paths
+#                                         resolved in full (no shell string, no
+#                                         user-controlled tokens).
+# NOTE: candidate-suite also skipped B607 (partial executable path). We do NOT:
+# agent-candidate starts processes by FULL path (sys.executable + resolved
+# script paths), so B607 cannot fire and is left active.
+skips = ["B404", "B603"]
+# The deterministic floor lives in lab/ and is dev-only scaffolding (it does not
+# ship); exclude it from the SAST scan, which targets the shippable server/.
+exclude_dirs = ["lab"]

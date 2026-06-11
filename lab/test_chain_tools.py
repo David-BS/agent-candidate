@@ -236,8 +236,13 @@ def main():
         Path(written).parent.resolve() == chain.OUTPUT_DIR.resolve(),
     )
     import datetime as _dt
+    from zoneinfo import ZoneInfo as _ZI
 
-    today = _dt.date.today()
+    # The filename stamp must be TODAY in the candidate's OWN timezone, matching
+    # the script (which stamps in --timezone) and the capture-date check below --
+    # NOT date.today(): on a CI runner the system clock is UTC, which diverges from
+    # the candidate zone across a midnight boundary and flakes by time of day.
+    today = _dt.datetime.now(_ZI(chain.CANDIDATE_TIMEZONE)).date()
     check(
         "filename is SCRIPT-owned (Posting_Brief_<c>_<p>_<YYYYMMDD>.md, today's stamp)",
         Path(written).name
@@ -251,7 +256,6 @@ def main():
     # and fall back, but the date could differ across a midnight boundary in
     # another zone; pin it to the candidate zone explicitly.
     import datetime as _dt2
-    from zoneinfo import ZoneInfo as _ZI
 
     tz_today = _dt2.datetime.now(_ZI(chain.CANDIDATE_TIMEZONE)).date().isoformat()
     check(

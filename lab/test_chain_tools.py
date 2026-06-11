@@ -443,7 +443,7 @@ def main():
     _env = {**_os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8",
             "MSYS_NO_PATHCONV": "1"}
     _r1 = _sp.run([sys.executable, _server_py, "--run", "__nope__"],
-                  capture_output=True, text=True, env=_env)
+                  capture_output=True, text=True, encoding="utf-8", env=_env)
     check("server.py --run <unknown> -> exit 1 (dispatch fires before serving)",
           _r1.returncode == 1)
     with tempfile.TemporaryDirectory() as _btmp:
@@ -456,7 +456,7 @@ def main():
              "--timezone", core.CANDIDATE_TIMEZONE,
              "--data-json", json.dumps(_refuse, ensure_ascii=False),
              "--labels-json", json.dumps(NOMINAL_LABELS, ensure_ascii=False)],
-            capture_output=True, text=True, env=_env)
+            capture_output=True, text=True, encoding="utf-8", env=_env)
         check("server.py --run brief (critical field __MISSING__) -> exit 2 "
               "(real refusal rides out through the binary entry)",
               _r2.returncode == 2)

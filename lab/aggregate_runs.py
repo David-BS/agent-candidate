@@ -71,7 +71,7 @@ class ScenarioAgg:
     n: int
     n_success: int
     n_error: int
-    burn_usd: float          # raw sum; rounded only at display time
+    burn_usd: float  # raw sum; rounded only at display time
     n_cost_present: int
     mean_cost_usd: float | None
     mean_turns: float | None
@@ -95,7 +95,7 @@ class Aggregates:
     cache_read_tokens: int
     n_token_complete: int
     n_token_unavailable: int
-    reuse_rate: float | None     # cache_read / (cache_read + cache_creation)
+    reuse_rate: float | None  # cache_read / (cache_read + cache_creation)
     # Latency, captured raw -- pair semantics deliberately unpinned, no overhead.
     mean_duration_ms: float | None
     mean_duration_api_ms: float | None
@@ -235,6 +235,7 @@ def load_ledger(path):
 
 # --- formatting (ASCII-only) --------------------------------------------------
 
+
 def _usd(v):
     return "n/a" if v is None else "$%.6f" % v
 
@@ -266,7 +267,10 @@ def format_report(agg, n_malformed=0, source=""):
 
     out.append("")
     out.append("Burn (USD native)")
-    burn_line = "  total: %s  over %d priced run(s)" % (_usd(agg.burn_usd), agg.n_cost_present)
+    burn_line = "  total: %s  over %d priced run(s)" % (
+        _usd(agg.burn_usd),
+        agg.n_cost_present,
+    )
     if agg.n_cost_missing:
         burn_line += "  (%d without cost)" % agg.n_cost_missing
     out.append(burn_line)
@@ -275,25 +279,46 @@ def format_report(agg, n_malformed=0, source=""):
     out.append("")
     out.append("Burn by scenario")
     for s in agg.by_scenario:
-        out.append("  %-28s n=%-3d burn=%s  mean/run=%s  turns~%s  (%d ok / %d err)"
-                   % (s.label, s.n, _usd(s.burn_usd), _usd(s.mean_cost_usd),
-                      _f1(s.mean_turns), s.n_success, s.n_error))
+        out.append(
+            "  %-28s n=%-3d burn=%s  mean/run=%s  turns~%s  (%d ok / %d err)"
+            % (
+                s.label,
+                s.n,
+                _usd(s.burn_usd),
+                _usd(s.mean_cost_usd),
+                _f1(s.mean_turns),
+                s.n_success,
+                s.n_error,
+            )
+        )
 
     out.append("")
-    out.append("Tokens (over %d token-complete run(s); %d without token data)"
-               % (agg.n_token_complete, agg.n_token_unavailable))
-    out.append("  input %d  output %d  cache-creation %d  cache-read %d"
-               % (agg.input_tokens, agg.output_tokens,
-                  agg.cache_creation_tokens, agg.cache_read_tokens))
-    out.append("  warm-cache reuse: %s   (cache-read / (cache-read + cache-creation))"
-               % _pct(agg.reuse_rate))
+    out.append(
+        "Tokens (over %d token-complete run(s); %d without token data)"
+        % (agg.n_token_complete, agg.n_token_unavailable)
+    )
+    out.append(
+        "  input %d  output %d  cache-creation %d  cache-read %d"
+        % (
+            agg.input_tokens,
+            agg.output_tokens,
+            agg.cache_creation_tokens,
+            agg.cache_read_tokens,
+        )
+    )
+    out.append(
+        "  warm-cache reuse: %s   (cache-read / (cache-read + cache-creation))"
+        % _pct(agg.reuse_rate)
+    )
 
     out.append("")
     out.append("Latency (raw, captured without interpretation)")
     out.append("  mean wall (duration_ms):     %s ms" % _f1(agg.mean_duration_ms))
     out.append("  mean api  (duration_api_ms): %s ms" % _f1(agg.mean_duration_api_ms))
-    out.append("  note: pair semantics unpinned; a live run showed api > wall "
-               "-- no overhead derived")
+    out.append(
+        "  note: pair semantics unpinned; a live run showed api > wall "
+        "-- no overhead derived"
+    )
 
     return "\n".join(out)
 

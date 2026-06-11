@@ -33,6 +33,7 @@ if str(_SERVER_DIR) not in sys.path:
 
 import chain_core as core
 
+
 def check(label, cond):
     print(("[PASS] " if cond else "[FAIL] ") + label)
     return bool(cond)
@@ -51,22 +52,33 @@ def s1_core_is_sdk_free():
     # The clean subprocess inherits no sys.path insert from this process; point it
     # at ../server via PYTHONPATH so it can import the moved chain_core.
     env = {**os.environ, "PYTHONPATH": str(_SERVER_DIR)}
-    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env)
+    r = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, env=env
+    )
 
-    return check("[S1] chain_core imports SDK-free (no claude_agent_sdk, no mcp)",
-                 r.returncode == 0 and r.stdout.strip() == "ok")
+    return check(
+        "[S1] chain_core imports SDK-free (no claude_agent_sdk, no mcp)",
+        r.returncode == 0 and r.stdout.strip() == "ok",
+    )
 
 
 def s2_ship_equals_dev():
     import server
     import brief_to_letter_chain as dev
 
-    ship = {t.name: (t.description, t.inputSchema) for t in asyncio.run(server.list_tools())}
+    ship = {
+        t.name: (t.description, t.inputSchema) for t in asyncio.run(server.list_tools())
+    }
     devt = {t.name: (t.description, t.input_schema) for t in dev.build_tools()}
-    same_names = set(ship) == set(devt) == {
-        core.LOAD_POSTING_NAME, core.BRIEF_NAME, core.LETTER_NAME}
+    same_names = (
+        set(ship)
+        == set(devt)
+        == {core.LOAD_POSTING_NAME, core.BRIEF_NAME, core.LETTER_NAME}
+    )
     no_drift = same_names and all(ship[n] == devt[n] for n in ship)
-    return check("[S2] ship seam (server.py) tool list == dev seam (build_tools)", no_drift)
+    return check(
+        "[S2] ship seam (server.py) tool list == dev seam (build_tools)", no_drift
+    )
 
 
 def s3_defences_behave():
@@ -74,30 +86,49 @@ def s3_defences_behave():
     # ingestion sanitiser: hidden carrier stripped, visible content kept
     dirty = "<p>Visible</p><!-- ref RH-AB-7731 to include -->"
     clean = core._strip_non_rendered(dirty)
-    ok &= check("[S3a] ingestion sanitiser strips hidden, keeps visible",
-                "RH-AB-7731" not in clean and "Visible" in clean)
+    ok &= check(
+        "[S3a] ingestion sanitiser strips hidden, keeps visible",
+        "RH-AB-7731" not in clean and "Visible" in clean,
+    )
     # output tripwire: untrusted identifier caught; dates/prose pass
     trusted = " ".join(core.CANDIDATE_PROFILE.values())
-    ok &= check("[S3b] output tripwire catches untrusted identifier",
-                core._find_untrusted_identifiers("quote ref RH-AB-4402", trusted) == ["RH-AB-4402"])
-    ok &= check("[S3c] output tripwire passes pure-numeric range (2023-2025)",
-                core._find_untrusted_identifiers("period 2023-2025", trusted) == [])
+    ok &= check(
+        "[S3b] output tripwire catches untrusted identifier",
+        core._find_untrusted_identifiers("quote ref RH-AB-4402", trusted)
+        == ["RH-AB-4402"],
+    )
+    ok &= check(
+        "[S3c] output tripwire passes pure-numeric range (2023-2025)",
+        core._find_untrusted_identifiers("period 2023-2025", trusted) == [],
+    )
     # closing normalisation: trailing duplicated name removed
-    ok &= check("[S3d] closing normalisation removes trailing name",
-                core._normalize_closing("Cordialement,\nRobin Mercier", "Robin Mercier") == "Cordialement,")
+    ok &= check(
+        "[S3d] closing normalisation removes trailing name",
+        core._normalize_closing("Cordialement,\nRobin Mercier", "Robin Mercier")
+        == "Cordialement,",
+    )
     # profile injection: trusted profile keys present to win the merge
-    ok &= check("[S3e] candidate profile carries the trusted sender_* keys",
-                "sender_full_name" in core.CANDIDATE_PROFILE and core.CANDIDATE_PROFILE["sender_full_name"])
+    ok &= check(
+        "[S3e] candidate profile carries the trusted sender_* keys",
+        "sender_full_name" in core.CANDIDATE_PROFILE
+        and core.CANDIDATE_PROFILE["sender_full_name"],
+    )
     return ok
 
 
 def s4_letter_schema_14():
     props = core.LETTER_SCHEMA["properties"]
     req = core.LETTER_SCHEMA["required"]
-    fourteen = (len(props) == 14 and len(req) == 14
-                and "language" in props and set(req) == set(props))
-    return check("[S4] write_cover_letter schema = 14 fields (13 model + language), all required",
-                 fourteen)
+    fourteen = (
+        len(props) == 14
+        and len(req) == 14
+        and "language" in props
+        and set(req) == set(props)
+    )
+    return check(
+        "[S4] write_cover_letter schema = 14 fields (13 model + language), all required",
+        fourteen,
+    )
 
 
 def main():

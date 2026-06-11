@@ -73,7 +73,9 @@ def _text(s: str) -> list[types.TextContent]:
 def _error(s: str) -> types.CallToolResult:
     # Clean degradation: the same is_error path the dev tools use, so the model
     # receives a refusal it must handle (mirrors {"is_error": True} server-side).
-    return types.CallToolResult(content=[types.TextContent(type="text", text=s)], isError=True)
+    return types.CallToolResult(
+        content=[types.TextContent(type="text", text=s)], isError=True
+    )
 
 
 @server.call_tool()
@@ -85,7 +87,9 @@ async def call_tool(name: str, arguments: dict):
         try:
             text = core.build_posting_load(arguments["offer_path"])
         except FileNotFoundError:
-            return _error(core.OFFER_NOT_FOUND_PREFIX + str(arguments.get("offer_path")))
+            return _error(
+                core.OFFER_NOT_FOUND_PREFIX + str(arguments.get("offer_path"))
+            )
         return _text(core.POSTING_RESULT_PREFIX + text)
 
     if name == core.BRIEF_NAME:
@@ -107,7 +111,9 @@ async def call_tool(name: str, arguments: dict):
 
 async def main():
     async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
-        await server.run(read_stream, write_stream, server.create_initialization_options())
+        await server.run(
+            read_stream, write_stream, server.create_initialization_options()
+        )
 
 
 if __name__ == "__main__":

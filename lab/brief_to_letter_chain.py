@@ -58,7 +58,8 @@ _SERVER_DIR = Path(__file__).resolve().parent.parent / "server"
 if str(_SERVER_DIR) not in sys.path:
     sys.path.insert(0, str(_SERVER_DIR))
 os.environ.setdefault(
-    "AGENT_CANDIDATE_OUTPUT_DIR", str(Path(__file__).resolve().parent / "runs"))
+    "AGENT_CANDIDATE_OUTPUT_DIR", str(Path(__file__).resolve().parent / "runs")
+)
 
 import chain_core as core
 
@@ -114,28 +115,70 @@ from chain_core import (
 # chain_core; everything after is dev-only and does not ship.
 __all__ = [
     # --- re-exported trust core (defined in chain_core) ---
-    "BRIEF_LABEL_KEYS", "BRIEF_MODEL_FIELDS", "BRIEF_NAME", "BRIEF_RESULT_PREFIX",
-    "BRIEF_SCHEMA", "BRIEF_SCRIPT_RELPATH", "CANDIDATE_PROFILE", "CANDIDATE_SUITE_DIR",
-    "CANDIDATE_TIMEZONE", "FILL_SCRIPT_RELPATH", "LETTER_MODEL_FIELDS", "LETTER_NAME",
-    "LETTER_RESULT_PREFIX", "LETTER_SCANNED_FIELDS", "LETTER_SCHEMA", "LETTER_TOOL_FIELDS",
-    "LOAD_POSTING_DESCRIPTION", "LOAD_POSTING_NAME", "LOAD_POSTING_SCHEMA",
-    "MISSING_SENTINEL", "OFFER_NOT_FOUND_PREFIX", "OUTPUT_DIR", "POSTING_RESULT_PREFIX",
-    "SERVER_NAME", "TEMPLATE_RELPATH", "_NON_RENDERED_RE", "_REFERENCE_CODE_RE",
-    "_find_untrusted_identifiers", "_identifier_tokens", "_normalize_closing", "_slug",
-    "_strip_non_rendered", "brief_tool_description", "build_brief", "build_letter",
-    "build_posting_load", "letter_tool_description", "read_offer_file", "resolve_suite_paths",
+    "BRIEF_LABEL_KEYS",
+    "BRIEF_MODEL_FIELDS",
+    "BRIEF_NAME",
+    "BRIEF_RESULT_PREFIX",
+    "BRIEF_SCHEMA",
+    "BRIEF_SCRIPT_RELPATH",
+    "CANDIDATE_PROFILE",
+    "CANDIDATE_SUITE_DIR",
+    "CANDIDATE_TIMEZONE",
+    "FILL_SCRIPT_RELPATH",
+    "LETTER_MODEL_FIELDS",
+    "LETTER_NAME",
+    "LETTER_RESULT_PREFIX",
+    "LETTER_SCANNED_FIELDS",
+    "LETTER_SCHEMA",
+    "LETTER_TOOL_FIELDS",
+    "LOAD_POSTING_DESCRIPTION",
+    "LOAD_POSTING_NAME",
+    "LOAD_POSTING_SCHEMA",
+    "MISSING_SENTINEL",
+    "OFFER_NOT_FOUND_PREFIX",
+    "OUTPUT_DIR",
+    "POSTING_RESULT_PREFIX",
+    "SERVER_NAME",
+    "TEMPLATE_RELPATH",
+    "_NON_RENDERED_RE",
+    "_REFERENCE_CODE_RE",
+    "_find_untrusted_identifiers",
+    "_identifier_tokens",
+    "_normalize_closing",
+    "_slug",
+    "_strip_non_rendered",
+    "brief_tool_description",
+    "build_brief",
+    "build_letter",
+    "build_posting_load",
+    "letter_tool_description",
+    "read_offer_file",
+    "resolve_suite_paths",
     # --- harness-only (dev observability; does not ship) ---
-    "MODEL", "MAX_TURNS", "MAX_BUDGET_USD", "FIXTURES_DIR", "DEFAULT_OFFER_PATH",
-    "DEFAULT_RUNS_LOG", "DEFAULT_TZ", "build_tools", "SYSTEM_PROMPT", "build_user_prompt",
-    "build_agent_options", "RunRecord", "record_from_result", "append_jsonl", "run", "main",
+    "MODEL",
+    "MAX_TURNS",
+    "MAX_BUDGET_USD",
+    "FIXTURES_DIR",
+    "DEFAULT_OFFER_PATH",
+    "DEFAULT_RUNS_LOG",
+    "DEFAULT_TZ",
+    "build_tools",
+    "SYSTEM_PROMPT",
+    "build_user_prompt",
+    "build_agent_options",
+    "RunRecord",
+    "record_from_result",
+    "append_jsonl",
+    "run",
+    "main",
 ]
 
 # ---------------------------------------------------------------------------
 # Harness-only configuration (dev observability; none of this ships)
 # ---------------------------------------------------------------------------
-MODEL = "claude-haiku-4-5-20251001"   # Haiku for a simple sub-task (roadmap §3)
-MAX_TURNS = 8                          # SDK realization of the hard iteration cap
-MAX_BUDGET_USD = 0.10                  # per-run cost ceiling, in code
+MODEL = "claude-haiku-4-5-20251001"  # Haiku for a simple sub-task (roadmap §3)
+MAX_TURNS = 8  # SDK realization of the hard iteration cap
+MAX_BUDGET_USD = 0.10  # per-run cost ceiling, in code
 
 # Fixtures live in fixtures/ next to this script. The PATH is a pointer the
 # prompt may mention; the offer CONTENT never enters the prompt.
@@ -162,17 +205,26 @@ def build_tools():
     all-required, which the core schemas reproduce byte-for-byte)."""
     from claude_agent_sdk import tool
 
-    @tool(core.LOAD_POSTING_NAME, core.LOAD_POSTING_DESCRIPTION, core.LOAD_POSTING_SCHEMA)
+    @tool(
+        core.LOAD_POSTING_NAME, core.LOAD_POSTING_DESCRIPTION, core.LOAD_POSTING_SCHEMA
+    )
     async def load_job_posting(args):
         try:
             text = core.build_posting_load(args["offer_path"])
         except FileNotFoundError:
             return {
-                "content": [{"type": "text",
-                             "text": core.OFFER_NOT_FOUND_PREFIX + str(args.get("offer_path"))}],
+                "content": [
+                    {
+                        "type": "text",
+                        "text": core.OFFER_NOT_FOUND_PREFIX
+                        + str(args.get("offer_path")),
+                    }
+                ],
                 "is_error": True,
             }
-        return {"content": [{"type": "text", "text": core.POSTING_RESULT_PREFIX + text}]}
+        return {
+            "content": [{"type": "text", "text": core.POSTING_RESULT_PREFIX + text}]
+        }
 
     @tool(core.BRIEF_NAME, core.brief_tool_description(), core.BRIEF_SCHEMA)
     async def generate_posting_brief(args):
@@ -225,7 +277,6 @@ SYSTEM_PROMPT = (
 )
 
 
-
 def build_user_prompt(offer_path):
     """Goal + candidate ONLY -- no tool is named and no order is imposed.
 
@@ -247,7 +298,6 @@ def build_user_prompt(offer_path):
     )
 
 
-
 def build_agent_options():
     """Assemble ClaudeAgentOptions: pre-approve the two tools AND empty the
     built-in palette via an allow-list (least privilege). Verified fields,
@@ -264,7 +314,7 @@ def build_agent_options():
         # v0.2.93): tools=[] -> CLI '--tools ""'; MCP tools come via mcp_servers
         # and are unaffected.
         tools=[],
-        allowed_tools=[          # still pre-approve our three MCP tools (no prompt)
+        allowed_tools=[  # still pre-approve our three MCP tools (no prompt)
             "mcp__" + SERVER_NAME + "__load_job_posting",
             "mcp__" + SERVER_NAME + "__generate_posting_brief",
             "mcp__" + SERVER_NAME + "__write_cover_letter",
@@ -279,7 +329,6 @@ def build_agent_options():
         # removing the discovery step so the orchestration decision is observable.
         env={"ENABLE_TOOL_SEARCH": "false"},
     )
-
 
 
 # ---------------------------------------------------------------------------
@@ -304,22 +353,25 @@ def build_agent_options():
 # channel" relocated to a file on disk. (The SDK reasons the same way: it
 # annotates `api_error_status` "Safe to log (no message content)".)
 
+
 @dataclass
 class RunRecord:
     """Metadata-only projection of a ResultMessage. JSON-serialisable."""
 
-    timestamp: str            # script stamps the real clock at write time
+    timestamp: str  # script stamps the real clock at write time
     session_id: str
     subtype: str
     is_error: bool
     stop_reason: str | None
     num_turns: int
     errors: list[str] | None
-    permission_denials: int   # count only (allow-list makes denials ~never fire)
+    permission_denials: int  # count only (allow-list makes denials ~never fire)
     api_error_status: int | None
     total_cost_usd: float | None
-    duration_ms: int          # captured as-is; pair semantics not pinned
-    duration_api_ms: int      # (live run showed api_ms > duration_ms -- no overhead derivation)
+    duration_ms: int  # captured as-is; pair semantics not pinned
+    duration_api_ms: (
+        int  # (live run showed api_ms > duration_ms -- no overhead derivation)
+    )
     input_tokens: int | None
     output_tokens: int | None
     cache_creation_input_tokens: int | None
@@ -393,7 +445,6 @@ def append_jsonl(record, path=DEFAULT_RUNS_LOG):
     return path
 
 
-
 async def run(offer_path, run_context=None):
     from claude_agent_sdk import ClaudeSDKClient, ResultMessage, create_sdk_mcp_server
 
@@ -409,11 +460,12 @@ async def run(offer_path, run_context=None):
             if isinstance(message, ResultMessage):
                 result = message
         if result is not None:
-            log_path = append_jsonl(record_from_result(
-                result, run_context=run_context, model_requested=options.model))
+            log_path = append_jsonl(
+                record_from_result(
+                    result, run_context=run_context, model_requested=options.model
+                )
+            )
             print("[run_record] appended -> " + str(log_path))
-
-
 
 
 def main():

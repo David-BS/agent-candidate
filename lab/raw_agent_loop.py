@@ -30,11 +30,11 @@ import anthropic
 sys.stdout.reconfigure(encoding="utf-8")
 
 # --- Configuration ----------------------------------------------------------
-MODEL = "claude-haiku-4-5-20251001"   # cheapest tier; enough for a tool demo
+MODEL = "claude-haiku-4-5-20251001"  # cheapest tier; enough for a tool demo
 MAX_TOKENS = 1024
-MAX_ITERATIONS = 5                    # HARD guardrail against a runaway loop
+MAX_ITERATIONS = 5  # HARD guardrail against a runaway loop
 
-client = anthropic.Anthropic()        # reads ANTHROPIC_API_KEY from the env
+client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from the env
 
 # --- Tool declaration -------------------------------------------------------
 # A tool is declared to the model by name + description + input_schema (JSON
@@ -136,8 +136,8 @@ for step in range(1, MAX_ITERATIONS + 1):
             tool_results.append(
                 {
                     "type": "tool_result",
-                    "tool_use_id": block.id,          # must echo the call's id
-                    "content": json.dumps(result),    # result handed back as data
+                    "tool_use_id": block.id,  # must echo the call's id
+                    "content": json.dumps(result),  # result handed back as data
                 }
             )
 

@@ -1,9 +1,13 @@
 name: release
 
-# Slice 1 of the packaging family: build the frozen binary on every target and
-# gate each with the post-build frozen-proofs. No bundle assembly, no upload to a
-# Release, no signing -- those land in slice 2 (which is the only place that earns
-# contents: write). workflow_dispatch lets the matrix be observed without cutting a tag.
+# Packaging family, two slices in one workflow:
+#   build    -- freeze the binary on every target, gate each with the frozen-proofs
+#               (slice 1). contents: read. No assembly, no upload to a Release.
+#   assemble -- stage one .mcpb per ship target (binary + pinned candidate-suite +
+#               manifest), validate + pack with the mcpb CLI, and -- on a tag only --
+#               attach them to the GitHub Release (slice 2). This is the ONLY job that
+#               earns contents: write, and only the attach step uses it.
+# workflow_dispatch lets the whole matrix + a dry-run assembly be observed without a tag.
 on:
   workflow_dispatch:
   push:
@@ -68,3 +72,102 @@ jobs:
         with:
           name: agent-candidate-${{ matrix.os }}-${{ matrix.arch }}
           path: dist/agent-candidate
+
+  assemble:
+    name: assemble + attach (.mcpb)
+    needs: build
+    runs-on: ubuntu-latest          # pack is OS-agnostic (zip + manifest schema); cheapest runner
+    timeout-minutes: 15
+    permissions:
+      contents: write               # the one job that earns write -- used only by the attach step (tag only)
+    steps:
+      - uses: actions/checkout@v5    # for manifest.json + .mcpbignore
+
+      - name: Checkout candidate-suite (pinned)
+        uses: actions/checkout@v5
+        with:
+          repository: David-BS/candidate-suite
+          ref: 2863162ee8bdb6260dd6d0c99621115a5b89cb6a   # the .py travel beside the binary at ${__dirname}/candidate-suite; full proven tree (== build's CANDIDATE_SUITE_DIR)
+          path: _suite
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install mcpb CLI (pinned)
+        run: npm install -g @anthropic-ai/mcpb@2.1.2
+
+      - name: Download ship binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: _artifacts          # -> _artifacts/<artifact-name>/{agent-candidate[.exe],_internal/} (current run only)
+
+      - name: Stage, validate and pack one .mcpb per ship target
+        run: |
+          set -euo pipefail
+          VERSION=$(jq -r '.version' manifest.json)
+          [ -n "$VERSION" ] && [ "$VERSION" != "null" ] || { echo "::error::manifest.json has no version"; exit 1; }
+          echo "Manifest version: $VERSION"
+
+          rm -rf _suite/.git                 # never ship a .git into the bundle (pack also auto-excludes, belt + braces)
+
+          # ship target (.mcpb suffix) -> downloaded build-artifact name
+          declare -A TARGETS=(
+            [win-x64]=agent-candidate-windows-latest-x64
+            [mac-arm64]=agent-candidate-macos-14-arm64
+            [mac-x64]=agent-candidate-macos-15-intel-x64
+          )
+
+          mkdir -p _dist
+          for suffix in "${!TARGETS[@]}"; do
+            art="${TARGETS[$suffix]}"
+            src="_artifacts/$art"
+            [ -d "$src" ] || { echo "::error::missing build artifact $src (build leg did not upload?)"; exit 1; }
+
+            bundle="_bundle-$suffix"
+            rm -rf "$bundle"
+            mkdir -p "$bundle/server"
+            cp manifest.json "$bundle/manifest.json"
+            cp .mcpbignore   "$bundle/.mcpbignore"
+            cp -R "$src/."  "$bundle/server/"        # agent-candidate[.exe] + _internal/ -> server/ (manifest entry_point)
+            cp -R _suite    "$bundle/candidate-suite"  # full proven tree; .mcpbignore prunes non-runtime infra
+
+            # host appends .exe on win32 for binary type; assert a launcher sits where the manifest points
+            if [ ! -e "$bundle/server/agent-candidate" ] && [ ! -e "$bundle/server/agent-candidate.exe" ]; then
+              echo "::error::no launcher at $bundle/server/agent-candidate[.exe]"; exit 1
+            fi
+
+            mcpb validate "$bundle"                   # schema gate (manifest_version 0.3) -- let the validator speak
+            out="_dist/agent-candidate-$VERSION-$suffix.mcpb"
+            mcpb pack "$bundle" "$out"
+            echo "Packed $out"
+          done
+          echo "--- bundles ---"; ls -la _dist
+
+      - name: Upload .mcpb (inspectable on dispatch and tag)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcpb-bundles
+          path: _dist/*.mcpb
+
+      - name: Guard tag == manifest version (tag only)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          set -euo pipefail
+          VERSION=$(jq -r '.version' manifest.json)
+          TAG="${GITHUB_REF_NAME}"
+          [ "$TAG" = "v$VERSION" ] || { echo "::error::tag $TAG != manifest v$VERSION (refusing to attach a version-mismatched bundle)"; exit 1; }
+          echo "Tag $TAG matches manifest v$VERSION"
+
+      - name: Attach .mcpb to the Release (tag only)
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          gh release view "$TAG" >/dev/null 2>&1 \
+            || gh release create "$TAG" --title "$TAG" \
+                 --notes "Automated MCP Bundle release for $TAG. One .mcpb per supported target (win-x64, mac-arm64, mac-x64). Unsigned (signature deferred)."
+          gh release upload "$TAG" _dist/*.mcpb --clobber
+          echo "Attached $(ls _dist/*.mcpb | wc -l) bundle(s) to release $TAG"

@@ -1,0 +1,13 @@
+# Non-runtime files pruned from the .mcpb bundle.
+# candidate-suite ships as the full proven tree (parity with the frozen-proof's
+# CANDIDATE_SUITE_DIR); only test/CI/build/doc infra -- never on the self-re-exec
+# import path of the brief/letter generators -- is pruned here.
+candidate-suite/.github/
+candidate-suite/tests/
+candidate-suite/tooling/
+candidate-suite/docs/
+
+# Python build artifacts (defensive; a fresh checkout has none)
+__pycache__/
+*.pyc
+*.pyo

@@ -35,7 +35,7 @@ leaf exceptions, and the frozen server's captured stderr is printed verbatim.
 
 TIERS (degrade gracefully; later tiers need more setup)
   T0  boot + initialize handshake            (binary only)
-  T1  tools/list == single-source contract   (binary only)
+  T1  tools/list == single-source contract == manifest   (binary only)
   T2  tools/call load_job_posting            (binary only; in-process tool, also
                                               proves the ingestion sanitiser runs
                                               INSIDE the frozen server)
@@ -71,6 +71,7 @@ EXIT CODES
 """
 
 import asyncio
+import json
 import os
 import sys
 import tempfile
@@ -90,6 +91,19 @@ from mcp.client.stdio import stdio_client  # noqa: E402
 STEP_TIMEOUT = 30.0  # seconds; a frozen stdio hang must fail, not wait forever
 
 EXPECTED_TOOLS = {core.LOAD_POSTING_NAME, core.BRIEF_NAME, core.LETTER_NAME}
+
+# The .mcpb manifest advertises the same tool contract to the host. It is a
+# hand-maintained file, so T1 asserts it against the live tools/list to keep it a
+# verified projection of the single source -- not a fourth copy free to drift
+# (a manifest/runtime mismatch makes the host refuse the server in default mode).
+MANIFEST_TOOLS = {
+    t["name"]
+    for t in json.loads(
+        (Path(__file__).resolve().parent.parent / "manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )["tools"]
+}
 
 
 class Fail(Exception):
@@ -174,7 +188,8 @@ async def _run_tiers(command, server_args, fixture, suite_dir, out_dir, errlog):
                 "server=%s proto=%s" % (init.serverInfo.name, init.protocolVersion),
             )
 
-            # T1 -- capability advertisement; single-source contract must survive.
+            # T1 -- capability advertisement; the single source must survive the
+            # JSON-RPC seam AND match what the .mcpb manifest advertises to the host.
             listed = await asyncio.wait_for(session.list_tools(), STEP_TIMEOUT)
             names = {tool.name for tool in listed.tools}
             _check(
@@ -182,7 +197,13 @@ async def _run_tiers(command, server_args, fixture, suite_dir, out_dir, errlog):
                 "tools/list %s != expected %s"
                 % (sorted(names), sorted(EXPECTED_TOOLS)),
             )
-            _emit("T1", "PASS", "tools=%s" % sorted(names))
+            _check(
+                names == MANIFEST_TOOLS,
+                "tools/list %s != manifest %s (manifest drifted from the runtime "
+                "contract; host would refuse default mode)"
+                % (sorted(names), sorted(MANIFEST_TOOLS)),
+            )
+            _emit("T1", "PASS", "tools=%s == manifest" % sorted(names))
 
             # T2 -- in-process tool. Proves call dispatch on the frozen binary AND
             # that the ingestion sanitiser RUNS inside the frozen server.

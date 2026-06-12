@@ -1,0 +1,85 @@
+name: Server Smoke
+
+# Server-seam regression gate (shift-left). Runs lab/test_frozen_server.py in
+# --python-server mode: it puts a real `mcp` SDK client in front of the NON-frozen
+# dev server (`python server/server.py`) and walks the JSON-RPC handshake end to
+# end -- T0 initialize, T1 tools/list == single-source contract, T2 in-server
+# ingestion sanitiser, T3 self-re-exec -> candidate-suite .md, T4 refusal ->
+# isError over the wire.
+#
+# WHY A SEPARATE GATE (not folded into Floor): a LIVE MCP server is a distinct
+# proof class from Floor's deterministic transform. It exercises the server seam
+# (event loop, stdio framing, call dispatch, spawn-from-inside-the-server) that
+# neither the floor nor test_frozen_build can reach, by construction -- neither
+# has a live server. This is the regression guard for the "server-seam bug" class
+# (e.g. the subprocess-stdin-inheritance bug closed in PR #3).
+#
+# WHY --python-server (dev server, not the frozen exe): the dev path replays the
+# same tiers with NO PyInstaller build -> mono-platform and cheap. The FROZEN
+# smoke (real exe) stays a per-platform, post-build gate in the OS matrix /
+# release.yml family; it cannot run here (no binary is built at source level).
+#
+# COVERAGE HONESTY: ubuntu-latest catches the OS-AGNOSTIC server-seam regressions
+# (contract drift, sanitiser, self-re-exec, refusal). It does NOT catch the
+# Windows-only class -- the stdin-inheritance bug reproduces only on Windows;
+# Linux tolerates it. Full coverage = the per-platform frozen smoke in
+# release.yml. Half-gain, taken knowingly (T1 alone -- contract anti-drift --
+# justifies the gate).
+#
+# COST / SECRETS: the smoke speaks JSON-RPC to a local server only -- no agent
+# loop, no model call -> NO API secret is needed; contents: read is sufficient.
+#
+# Cross-repo wiring MIRRORS Floor: candidate-suite is checked out as a sibling,
+# PINNED to the same immutable SHA, so T3/T4 exercise the REAL refusal contract
+# over the wire -- the suite that TESTS is the suite that ships. candidate-suite
+# is public, so no token is needed.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  server-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout agent-candidate
+        uses: actions/checkout@v6
+        # primary checkout -> $GITHUB_WORKSPACE
+
+      - name: Checkout candidate-suite (sibling real-suite back-end, pinned)
+        uses: actions/checkout@v6
+        with:
+          repository: David-BS/candidate-suite
+          # Same immutable pin as Floor (release/1.0.0, merge of PR #21). The
+          # suite that tests T3/T4 here must be the suite the bundle ships.
+          ref: 2863162ee8bdb6260dd6d0c99621115a5b89cb6a
+          path: candidate-suite        # -> $GITHUB_WORKSPACE/candidate-suite
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies (pinned)
+        run: pip install -r requirements.txt
+        # Brings in `mcp` (server + client) and the suite's runtime deps. Floor
+        # already proves the real scripts run under this exact install, so T3/T4
+        # (brief over the wire) are covered.
+
+      - name: Wire CANDIDATE_SUITE_DIR
+        run: echo "CANDIDATE_SUITE_DIR=$GITHUB_WORKSPACE/candidate-suite" >> "$GITHUB_ENV"
+
+      - name: Run server-seam smoke (dev server, T0-T4)
+        run: >-
+          python lab/test_frozen_server.py --python-server
+          --fixture lab/fixtures/offer_atlas_banque.html
+        # --python-server: tiers run against `python server/server.py` (no binary
+        # build). --fixture enables T2 (ingestion sanitiser); CANDIDATE_SUITE_DIR
+        # (wired above) enables T3/T4. The smoke makes no model call -> no secret.
+        # Exit codes: 0 pass, 1 assertion/raise, 2 timeout, 3 usage -> any nonzero
+        # fails the job.

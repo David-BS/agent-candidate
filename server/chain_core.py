@@ -361,6 +361,9 @@ def build_brief(data, output_dir=None):
     proc = subprocess.run(
         cmd,
         shell=False,
+        # child must not inherit the server's stdin (the JSON-RPC pipe) -- on
+        # Windows the inherited handle kills the stdio reader mid-call
+        stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -581,6 +584,9 @@ def build_letter(data, output_dir=None):
     proc = subprocess.run(
         cmd,
         shell=False,
+        # child must not inherit the server's stdin (the JSON-RPC pipe) -- on
+        # Windows the inherited handle kills the stdio reader mid-call
+        stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
         encoding="utf-8",

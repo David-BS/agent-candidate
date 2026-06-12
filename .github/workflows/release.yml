@@ -40,7 +40,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: David-BS/candidate-suite
-          ref: 2863162
+          ref: 2863162ee8bdb6260dd6d0c99621115a5b89cb6a   # full immutable SHA (v1.0.0 tip); checkout cannot fetch a short SHA
           path: candidate-suite
 
       - uses: actions/setup-python@v5

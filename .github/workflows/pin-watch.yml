@@ -1,0 +1,157 @@
+name: pin-watch
+
+# Drift watcher for the candidate-suite pin.
+#
+# candidate-suite is consumed as an immutability ANCHOR — a second actions/checkout
+# pinned to a full SHA in floor.yml / release.yml — not a freshness target. No
+# Dependabot ecosystem tracks that ref by design: auto-bumping would silently move
+# the floor's source of truth. This workflow only NOTIFIES drift. It compares the
+# pinned SHA against candidate-suite HEAD and opens ONE idempotent issue when HEAD
+# has moved ahead. Validation (the Floor gate replays the real scripts at the
+# candidate SHA) and the decision (a manual bump PR) stay human — see
+# CONTRIBUTING.md -> "Changing the candidate-suite pin".
+
+on:
+  schedule:
+    # Monthly, low-noise. GitHub cron runs in UTC; the exact minute is irrelevant
+    # for a monthly check. NOTE: scheduled runs use the workflow file as it exists
+    # on the default branch only.
+    - cron: '0 9 1 * *'
+  workflow_dispatch:
+    inputs:
+      pin_override:
+        description: >-
+          Test only: compare against this SHA instead of the one derived from
+          floor.yml (forces the drift path). Leave empty for normal operation.
+        required: false
+        default: ''
+
+permissions:
+  contents: read   # checkout, to read floor.yml
+  issues: write    # open the drift issue + ensure the pin-drift label exists
+
+env:
+  SUITE_REPO: David-BS/candidate-suite
+  SUITE_BRANCH: main
+  DRIFT_LABEL: pin-drift
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout (to read floor.yml)
+        uses: actions/checkout@v6
+
+      - name: Resolve pinned SHA and candidate-suite HEAD
+        id: resolve
+        shell: bash
+        env:
+          # Pass the dispatch input through the environment rather than inlining
+          # ${{ ... }} into the script: never let an expression land in a shell
+          # command unquoted (script-injection discipline), even a maintainer-only one.
+          PIN_OVERRIDE: ${{ inputs.pin_override }}
+        run: |
+          set -euo pipefail
+
+          FLOOR=.github/workflows/floor.yml
+          if [[ ! -f "$FLOOR" ]]; then
+            echo "::error::$FLOOR not found"
+            exit 1
+          fi
+
+          # Pinned SHA: DERIVE it from floor.yml, never re-type it (no extra copy to
+          # diverge). Invariant: the candidate-suite pin is the ONLY full 40-hex SHA
+          # in floor.yml (actions are pinned by floating major tag @vN, not by SHA).
+          # If that invariant ever breaks (e.g. an action gets SHA-pinned), we find
+          # >1 match and FAIL LOUDLY rather than silently compare the wrong value.
+          if [[ -n "$PIN_OVERRIDE" ]]; then
+            PIN="$PIN_OVERRIDE"
+            echo "::warning::pin_override set — comparing against $PIN (test mode, not floor.yml)"
+          else
+            mapfile -t SHAS < <(grep -oE '\b[0-9a-f]{40}\b' "$FLOOR" | sort -u)
+            if [[ "${#SHAS[@]}" -ne 1 ]]; then
+              echo "::error::expected exactly one 40-hex SHA in $FLOOR, found ${#SHAS[@]}: ${SHAS[*]:-<none>}"
+              exit 1
+            fi
+            PIN="${SHAS[0]}"
+          fi
+          echo "pinned SHA : $PIN"
+
+          # HEAD of candidate-suite via the git protocol (not the rate-limited REST API).
+          HEAD="$(git ls-remote "https://github.com/${SUITE_REPO}.git" "refs/heads/${SUITE_BRANCH}" | cut -f1)"
+          if [[ ! "$HEAD" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::could not resolve ${SUITE_REPO}@${SUITE_BRANCH} HEAD (got: '${HEAD:-<empty>}')"
+            exit 1
+          fi
+          echo "HEAD SHA   : $HEAD"
+
+          if [[ "$PIN" == "$HEAD" ]]; then
+            echo "in sync — pin matches HEAD, nothing to do."
+            echo "drift=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "drift=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "pin=$PIN"   >> "$GITHUB_OUTPUT"
+          echo "head=$HEAD" >> "$GITHUB_OUTPUT"
+
+      - name: Open drift issue (idempotent by label)
+        if: steps.resolve.outputs.drift == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PIN: ${{ steps.resolve.outputs.pin }}
+          HEAD: ${{ steps.resolve.outputs.head }}
+        run: |
+          set -euo pipefail
+
+          # How far has main moved past the pin? A three-dot compare is relative to
+          # the merge-base; ahead_by is the count of commits main has that the pin
+          # does not.
+          CMP="$(gh api "repos/${SUITE_REPO}/compare/${PIN}...${HEAD}")"
+          AHEAD="$(jq -r '.ahead_by' <<<"$CMP")"
+          echo "ahead_by   : $AHEAD"
+
+          if [[ "$AHEAD" -eq 0 ]]; then
+            # SHAs differ but main is not ahead (e.g. main was rewound below the pin).
+            # Not the drift this watcher is for; log and stop without opening an issue.
+            echo "HEAD differs but is not ahead of the pin (ahead_by=0) — no issue."
+            exit 0
+          fi
+
+          # Idempotence by LABEL, not title: the title carries N, which changes as
+          # main advances, so a title match would be brittle. One open pin-drift
+          # issue is enough — never stack duplicates.
+          OPEN="$(gh issue list --repo "${GITHUB_REPOSITORY}" --label "${DRIFT_LABEL}" --state open --json number --jq 'length')"
+          if [[ "$OPEN" -gt 0 ]]; then
+            echo "a ${DRIFT_LABEL} issue is already open — skipping (idempotent)."
+            exit 0
+          fi
+
+          # Ensure the label exists (self-healing; --force creates or updates, so a
+          # forgotten manual setup step can never make the first real drift fail here).
+          gh label create "${DRIFT_LABEL}" --repo "${GITHUB_REPOSITORY}" --force \
+            --color BFD4F2 --description "candidate-suite pin is behind HEAD"
+
+          # Body: the commit range (newest first, capped) + the manual bump flow.
+          BODY_FILE="$(mktemp)"
+          {
+            echo "The pinned \`candidate-suite\` SHA used by \`floor.yml\` / \`release.yml\` is **${AHEAD} commit(s) behind** \`${SUITE_REPO}@${SUITE_BRANCH}\`."
+            echo
+            echo "- Pinned: \`${PIN}\`"
+            echo "- HEAD:   \`${HEAD}\`"
+            echo
+            echo "### New commits on \`${SUITE_BRANCH}\`"
+            jq -r '.commits[-20:] | reverse | .[] | "- `" + (.sha[0:7]) + "` " + (.commit.message | split("\n")[0])' <<<"$CMP"
+            if [[ "$AHEAD" -gt 20 ]]; then echo "- … and $((AHEAD - 20)) more"; fi
+            echo
+            echo "This is a notification only. The pin is an **immutability anchor** for a reproducible floor; it is deliberately not auto-bumped."
+            echo "To act: bump the pin manually in a PR per \`CONTRIBUTING.md\` -> *Changing the candidate-suite pin* (full SHA, never a mutable ref; \`floor.yml\` and \`release.yml\` in one PR). The \`Floor\` gate replays the real scripts at the candidate SHA before merge."
+          } > "$BODY_FILE"
+
+          gh issue create --repo "${GITHUB_REPOSITORY}" \
+            --title "candidate-suite is ${AHEAD} commit(s) ahead of the pin" \
+            --label "${DRIFT_LABEL}" \
+            --body-file "$BODY_FILE"
+
+          echo "drift issue opened."

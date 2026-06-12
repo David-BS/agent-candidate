@@ -1,7 +1,7 @@
 # Threat Model — `agent-candidate`
 
-**System:** agentic job-application assistant. Current scope: the brief-to-cover-letter pipeline (Claude Agent SDK, in-process MCP server).
-**Implementation status (dated):** the empirical findings below were established on the lab harness `brief_to_letter_chain` — simplified tool doubles, contract-faithful to the real `candidate-suite` scripts (same error semantics, same data flow). The graft onto the real scripts is an anticipated change, covered by review trigger §8.5: this document describes the *system*, and survives the swap; the deterministic defenses live in tool code and must be carried over and re-proven, not assumed.
+**System:** agentic job-application assistant. Current scope: the brief-to-cover-letter pipeline, served by a standalone stdio MCP server (official `mcp` SDK, `mcp.server.lowlevel.Server`), frozen to a self-contained binary.
+**Implementation status (dated):** the empirical findings below were established on the lab harness `brief_to_letter_chain` — simplified tool doubles, contract-faithful to the real `candidate-suite` scripts (same error semantics, same data flow). The graft onto the real scripts **has been done**: the deterministic defenses (ingestion strip, identifier tripwire, closing normalization) were carried over into the real tool code and **re-proven** on the floor suite (now 132 checks), as review trigger §8.5 required. This document describes the *system* and survived the swap.
 **Scope:** the agent as currently built and run locally. Deployment-specific threats are listed as deferred items with explicit triggers, not analyzed in depth here.
 **Status:** living document. Review triggers are listed in §8.
 
@@ -91,7 +91,7 @@ Verb-level attacks ("call the delete tool") are dead by construction: the allow-
 |---|---|---|---|---|---|
 | 1 | Non-rendered offer content | Strip at ingestion | Deterministic, structural | In place, floor-tested | None |
 | 2 | Visible offer prose | Instructional rampart | Judgment | In place, behaviorally proven (N=2) | **Accepted, documented (§5.2)** |
-| 3 | Visible prose → output | Identifier-taint tripwire | Deterministic, narrow | In place, 39/39 floor, zero-FP | By design: only identifier patterns |
+| 3 | Visible prose → output | Identifier-taint tripwire | Deterministic, narrow | In place, 132/132 floor, zero-FP | By design: only identifier patterns |
 | 4 | Output template | Single-source signature, closing normalization | Deterministic, structural | In place, floor-tested | None |
 | 5 | Egress by reference | Confirmation gate on sensitive-field egress | Deterministic, value-based | **Deferred to deployment** (channel inert today) | N/A until live |
 | 6 | Tool invocation | Empty built-in palette (allow-list) | Structural | In place | None (nothing to invoke) |
@@ -122,4 +122,4 @@ This model must be re-examined when any of the following changes:
 
 ## 9. Empirical basis
 
-Every behavioral claim above traces to logged live runs on fictional fixtures, established with single-variable pairs and pre-stated success criteria. Primary evidence is always tool input and file content; model reasoning traces are corroboration only. The floor test suite (39 tests) locks the deterministic layers; promotion of a judgment-based defense additionally requires live behavioral proof.
+Every behavioral claim above traces to logged live runs on fictional fixtures, established with single-variable pairs and pre-stated success criteria. Primary evidence is always tool input and file content; model reasoning traces are corroboration only. The floor test suite (132 checks) locks the deterministic layers; promotion of a judgment-based defense additionally requires live behavioral proof.

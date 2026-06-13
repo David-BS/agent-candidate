@@ -127,10 +127,22 @@ jobs:
             bundle="_bundle-$suffix"
             rm -rf "$bundle"
             mkdir -p "$bundle/server"
-            cp manifest.json "$bundle/manifest.json"
+            # per-target compatibility: declare only the platform this bundle actually carries
+            # (the repo manifest lists the union; a bundle must not claim a platform it has no binary for)
+            case "$suffix" in
+              win-x64)            platforms='["win32"]'  ;;
+              mac-arm64|mac-x64)  platforms='["darwin"]' ;;
+              *) echo "::error::unknown ship target $suffix (update platforms case)"; exit 1 ;;
+            esac
+            jq --argjson p "$platforms" '.compatibility.platforms = $p' manifest.json > "$bundle/manifest.json"
             cp .mcpbignore   "$bundle/.mcpbignore"
             cp -R "$src/."  "$bundle/server/"        # agent-candidate[.exe] + _internal/ -> server/ (manifest entry_point)
             cp -R _suite    "$bundle/candidate-suite"  # full proven tree; .mcpbignore prunes non-runtime infra
+
+            # upload/download-artifact drop POSIX modes -> staged launcher is 0644 -> permission denied / exit 126 at
+            # spawn (upstream of Gatekeeper). Restore +x on the no-extension launcher (mac/linux); the .exe (win) does
+            # not use the bit. mcpb pack preserves the mode into the .mcpb.
+            [ -e "$bundle/server/agent-candidate" ] && chmod +x "$bundle/server/agent-candidate"
 
             # host appends .exe on win32 for binary type; assert a launcher sits where the manifest points
             if [ ! -e "$bundle/server/agent-candidate" ] && [ ! -e "$bundle/server/agent-candidate.exe" ]; then

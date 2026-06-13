@@ -19,7 +19,7 @@
     "type": "binary",
     "entry_point": "server/agent-candidate",
     "mcp_config": {
-      "command": "server/agent-candidate",
+      "command": "${__dirname}/server/agent-candidate",
       "args": [],
       "env": {
         "CANDIDATE_SUITE_DIR": "${__dirname}/candidate-suite",

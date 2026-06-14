@@ -40,11 +40,13 @@ flowchart TD
     PR --> S["security<br/>Bandit SAST"]
     PR --> SS["server-smoke<br/>live JSON-RPC seam"]
     PR --> CQ["Analyze (python)<br/>CodeQL security-extended"]
-    Q --> G{"All 5 required checks green?<br/>branch up to date?"}
+    PR --> RS["code-scanning ruleset<br/>CodeQL alert >= High / Errors"]
+    Q --> G{"All 5 checks green + ruleset clear?<br/>branch up to date?"}
     F --> G
     S --> G
     SS --> G
     CQ --> G
+    RS --> G
     G -- yes --> M(["Merge to main"])
     G -- no --> X(["Merge blocked"])
 ```
@@ -221,9 +223,11 @@ Three distinct bars, in order of strength:
 
 1. **Green to merge** — all five required checks pass (`quality`, `floor`,
    `security`, `Analyze (python) (python)`, `server-smoke`) and the branch is up
-   to date. This is the Layer B gate (Section 7). Note that a *clean* CodeQL run
-   is not part of this bar: the check proves the analysis ran, not that it found
-   nothing (Section 7, code-scanning gap).
+   to date. This is the Layer B gate (Section 7). A CodeQL alert at or above the
+   ruleset threshold (≥ High / Errors) **also** blocks the merge — enforced by
+   the code-scanning ruleset, a gate distinct *in kind* from the five status
+   checks: the checks gate on the job running, the ruleset gates on the finding
+   (Section 7).
 2. **Green to ship** — at a `v*` tag, every ship leg of the `build` matrix
    freezes and passes both frozen proofs, the `assemble` job packs one valid
    `.mcpb` per target, and the **`tag == manifest version`** guard holds before
@@ -357,19 +361,21 @@ wants the same protection.
 - Block force pushes; restrict deletions; **do not allow bypassing, admins
   included** (`enforce_admins`).
 
-**Code-scanning merge protection — not enforced (documented gap).**
-`candidate-suite` adds a ruleset (Settings → Rules → Rulesets) that blocks a
-merge when CodeQL reports an alert at or above a severity threshold.
-`agent-candidate` has **no such ruleset** today. The consequence is precise and
-worth stating plainly: the `Analyze (python) (python)` required check proves the
-analysis **ran** (and blocks if it fails to run), but a CodeQL alert — even at
-High severity — would **not** block the merge, because the `analyze` job
-succeeds while merely uploading the alert to code scanning. Closing this is a
-Layer-B change (add a code-scanning ruleset: tool CodeQL, threshold
-≥ High / Errors); it is recommended for a security-sensitive MCP server and is
-tracked as separate work, not part of this document. It is recorded here
-deliberately: a documented residual is an engineering decision; a silent one is
-a hole.
+**Code-scanning merge protection — enforced (ruleset).**
+A repository ruleset (Settings → Rules → Rulesets), **`Code scanning - CodeQL
+gate`**, blocks a merge when CodeQL reports an alert at or above a severity
+threshold — at parity with `candidate-suite`. It targets the default branch, has
+**no bypass actors (admins included)**, and carries one `code_scanning` rule:
+tool **CodeQL**, `security_alerts_threshold: high_or_higher`, `alerts_threshold:
+errors`. This closes a gap worth stating plainly, because the two mechanisms
+differ *in kind*: the `Analyze (python) (python)` required **status check**
+proves the analysis **ran** (and blocks if it fails to run), but it stays green
+while merely uploading an alert to code scanning; the **ruleset** reads the
+analysis *results* and blocks the merge if a security alert is High or above, or
+a quality alert is at error level. The status check gates on the **job**; the
+ruleset gates on the **finding**. (Classic branch protection's required-checks
+list cannot express this — there is no built-in check that means "no High
+alert"; the code-scanning gate is a ruleset-only rule type.)
 
 **Advanced Security** (Settings → Advanced Security / Code security):
 
@@ -400,9 +406,9 @@ the same posture in your fork:
    automatically from `codeql.yml` on the first run.
 4. **Recreate branch protection** on your default branch with the five required
    checks and "require branches up to date" (Section 7).
-5. *(Recommended — not currently set on `agent-candidate`.)* Add a
-   **code-scanning ruleset** (CodeQL, ≥ High / Errors) so alerts block merges.
-   See the documented gap in Section 7.
+5. **Recreate the code-scanning ruleset** (CodeQL, ≥ High / Errors) so alerts
+   block merges, mirroring `agent-candidate`'s `Code scanning - CodeQL gate`
+   (Section 7). Like all of Layer B, it does not travel with a fork.
 6. **The `candidate-suite` pin already travels** (it is in Layer A files). The
    sibling repo is public, so the pinned checkout needs no token. If you also
    fork `candidate-suite`, repoint the pin in `floor.yml`, `server-smoke.yml`,
@@ -423,6 +429,7 @@ Layer B.
 | `security` required check | B (branch) | a Bandit finding |
 | `server-smoke` required check | B (branch) | a server-seam regression (contract drift, sanitiser, refusal) |
 | `Analyze (python) (python)` required check | B (branch) | a CodeQL analysis failure (the analysis failing to run — **not** an alert) |
+| `Code scanning - CodeQL gate` ruleset (CodeQL ≥ High / Errors) | B (ruleset) | a CodeQL alert at or above threshold (the *finding*, not the run) |
 | Secret scanning + push protection | B (Adv. Security) | a secret at push time |
 | Dependabot alerts / security updates | B (Adv. Security) | a vulnerable dependency (alerts; auto-fix PRs) |
 | `tag == manifest version` guard | A (`release.yml`) | attaching a version-mismatched bundle |
@@ -430,10 +437,11 @@ Layer B.
 
 A few caveats worth knowing:
 
-- **CodeQL alerts do not block merges.** The `Analyze (python) (python)` check
-  proves the analysis ran, not that it was clean; with no code-scanning ruleset
-  in place, an alert (even ≥ High) does not gate the merge. This is a documented
-  Layer-B gap versus `candidate-suite` (Section 7).
+- **CodeQL alerts block merges via the ruleset, not the status check.** The
+  `Analyze (python) (python)` check proves the analysis ran, not that it was
+  clean; the gating on *findings* comes from the `Code scanning - CodeQL gate`
+  ruleset (alert ≥ High / Errors), now at parity with `candidate-suite`
+  (Section 7). Status check = the job ran; ruleset = the result passes.
 - **`release.yml` is only exercised on a tag push or a dispatch.** A pull
   request's gates do not run it, so a green PR does not prove the release still
   works. Validate the release path on the next `v*` tag (or via

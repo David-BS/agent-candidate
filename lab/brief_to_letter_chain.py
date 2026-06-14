@@ -242,7 +242,55 @@ def build_tools():
             return {"content": [{"type": "text", "text": str(e)}], "is_error": True}
         return {"content": [{"type": "text", "text": core.LETTER_RESULT_PREFIX + path}]}
 
-    return [load_job_posting, generate_posting_brief, write_cover_letter]
+    @tool(core.PLAYBOOK_NAME, core.playbook_tool_description(), core.PLAYBOOK_SCHEMA)
+    async def generate_strategic_playbook(args):
+        try:
+            path = core.build_playbook(args)
+        except ValueError as e:
+            return {"content": [{"type": "text", "text": str(e)}], "is_error": True}
+        return {
+            "content": [{"type": "text", "text": core.PLAYBOOK_RESULT_PREFIX + path}]
+        }
+
+    @tool(core.SUMMARY_NAME, core.summary_tool_description(), core.SUMMARY_SCHEMA)
+    async def generate_application_summary(args):
+        try:
+            path = core.build_summary(args)
+        except ValueError as e:
+            return {"content": [{"type": "text", "text": str(e)}], "is_error": True}
+        return {
+            "content": [{"type": "text", "text": core.SUMMARY_RESULT_PREFIX + path}]
+        }
+
+    @tool(core.INTERVIEW_NAME, core.interview_tool_description(), core.INTERVIEW_SCHEMA)
+    async def generate_interview_prep(args):
+        try:
+            path = core.build_interview(args)
+        except ValueError as e:
+            return {"content": [{"type": "text", "text": str(e)}], "is_error": True}
+        return {
+            "content": [{"type": "text", "text": core.INTERVIEW_RESULT_PREFIX + path}]
+        }
+
+    @tool(core.REFCARD_NAME, core.refcard_tool_description(), core.REFCARD_SCHEMA)
+    async def generate_quick_reference(args):
+        try:
+            path = core.build_refcard(args)
+        except ValueError as e:
+            return {"content": [{"type": "text", "text": str(e)}], "is_error": True}
+        return {
+            "content": [{"type": "text", "text": core.REFCARD_RESULT_PREFIX + path}]
+        }
+
+    return [
+        load_job_posting,
+        generate_posting_brief,
+        write_cover_letter,
+        generate_strategic_playbook,
+        generate_application_summary,
+        generate_interview_prep,
+        generate_quick_reference,
+    ]
 
 
 SYSTEM_PROMPT = (
@@ -314,10 +362,14 @@ def build_agent_options():
         # v0.2.93): tools=[] -> CLI '--tools ""'; MCP tools come via mcp_servers
         # and are unaffected.
         tools=[],
-        allowed_tools=[  # still pre-approve our three MCP tools (no prompt)
+        allowed_tools=[  # still pre-approve our MCP tools (no prompt)
             "mcp__" + SERVER_NAME + "__load_job_posting",
             "mcp__" + SERVER_NAME + "__generate_posting_brief",
             "mcp__" + SERVER_NAME + "__write_cover_letter",
+            "mcp__" + SERVER_NAME + "__generate_strategic_playbook",
+            "mcp__" + SERVER_NAME + "__generate_application_summary",
+            "mcp__" + SERVER_NAME + "__generate_interview_prep",
+            "mcp__" + SERVER_NAME + "__generate_quick_reference",
         ],
         max_turns=MAX_TURNS,
         max_budget_usd=MAX_BUDGET_USD,

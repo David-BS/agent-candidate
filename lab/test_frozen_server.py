@@ -90,7 +90,15 @@ from mcp.client.stdio import stdio_client  # noqa: E402
 
 STEP_TIMEOUT = 30.0  # seconds; a frozen stdio hang must fail, not wait forever
 
-EXPECTED_TOOLS = {core.LOAD_POSTING_NAME, core.BRIEF_NAME, core.LETTER_NAME}
+EXPECTED_TOOLS = {
+    core.LOAD_POSTING_NAME,
+    core.BRIEF_NAME,
+    core.LETTER_NAME,
+    core.PLAYBOOK_NAME,
+    core.SUMMARY_NAME,
+    core.INTERVIEW_NAME,
+    core.REFCARD_NAME,
+}
 
 # The .mcpb manifest advertises the same tool contract to the host. It is a
 # hand-maintained file, so T1 asserts it against the live tools/list to keep it a
@@ -194,8 +202,7 @@ async def _run_tiers(command, server_args, fixture, suite_dir, out_dir, errlog):
                 init.serverInfo.version == MANIFEST_VERSION,
                 "serverInfo.version %r != manifest %r (version wiring missing or "
                 "half-bumped: Server(version=core.SERVER_VERSION) and manifest.json "
-                "must move together)"
-                % (init.serverInfo.version, MANIFEST_VERSION),
+                "must move together)" % (init.serverInfo.version, MANIFEST_VERSION),
             )
             _check(bool(init.protocolVersion), "empty protocolVersion")
             _emit(

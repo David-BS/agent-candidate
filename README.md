@@ -138,6 +138,11 @@ repository, its history, or its test runs. Run records are written under
 
 Dependencies are pinned and watched by Dependabot (`github-actions` + `pip`).
 
+The full pipeline rationale — what each gate enforces, the per-seam testing
+model and the three delivery-acceptance bars, the `candidate-suite` pin and its
+drift watcher, and the Layer A / Layer B fork model — lives in
+[`CI_CD.md`](CI_CD.md).
+
 ---
 
 ## Repository layout
@@ -150,6 +155,7 @@ Dependencies are pinned and watched by Dependabot (`github-actions` + `pip`).
 ├── THREAT_MODEL.md           # threat model: channels × paired defenses (review triggers in §8)
 ├── OBSERVABILITY.md          # run-record / attribution / aggregation model (dev-side)
 ├── INSTALL.md                # install matrix, steps, and published security scope
+├── CI_CD.md                  # CI/CD deep-dive: gates, testing model, Layer A/B, the why
 ├── manifest.json             # MCP bundle manifest (server.type: binary; verified tool contract)
 ├── pyproject.toml            # ruff + bandit config (single source for the toolchain)
 ├── requirements.txt          # pinned runtime / floor / build dependencies

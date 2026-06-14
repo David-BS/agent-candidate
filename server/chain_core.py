@@ -52,6 +52,11 @@ from pathlib import Path
 # Core configuration
 # ---------------------------------------------------------------------------
 SERVER_NAME = "chain"  # tools resolve as mcp__chain__<tool>
+# Single Python source of the product version. PARITY-CHECKED against
+# manifest.json by test_frozen_server T0 (serverInfo.version == manifest), the
+# same shape as the tools/list <-> manifest parity (T1). Bump here AND in the
+# manifest in the same commit; the assert refuses a half-bump.
+SERVER_VERSION = "0.2.0"
 
 # Language-neutral sentinel, identical to the real scripts (LNG-2 S3b):
 # a critical field that is empty OR equals this token is refused, never invented.
@@ -69,6 +74,18 @@ TEMPLATE_RELPATH = Path(
 )
 BRIEF_SCRIPT_RELPATH = Path(
     "modules/posting-brief-generator/scripts/generate_posting_brief.py"
+)
+PLAYBOOK_SCRIPT_RELPATH = Path(
+    "modules/strategic-playbook-generator/scripts/generate_playbook.py"
+)
+SUMMARY_SCRIPT_RELPATH = Path(
+    "modules/application-summary-generator/scripts/generate_application_summary.py"
+)
+INTERVIEW_SCRIPT_RELPATH = Path(
+    "modules/interview-prep-generator/scripts/generate_interview_prep.py"
+)
+REFCARD_SCRIPT_RELPATH = Path(
+    "modules/quick-reference-generator/scripts/generate_quick_reference.py"
 )
 
 # The candidate's IANA timezone is PROFILE data (trusted provenance, wrapper-
@@ -93,7 +110,8 @@ def resolve_suite_paths():
 
     RuntimeError with an actionable message when the env var is unset or the
     files are absent -- a loud, early failure instead of a mid-run surprise.
-    Returns a dict: fill_script, template, brief_script.
+    Returns a dict: fill_script, template, brief_script, playbook_script,
+    summary_script, interview_script, refcard_script.
     """
     if not CANDIDATE_SUITE_DIR:
         raise RuntimeError(
@@ -106,6 +124,10 @@ def resolve_suite_paths():
         "fill_script": root / FILL_SCRIPT_RELPATH,
         "template": root / TEMPLATE_RELPATH,
         "brief_script": root / BRIEF_SCRIPT_RELPATH,
+        "playbook_script": root / PLAYBOOK_SCRIPT_RELPATH,
+        "summary_script": root / SUMMARY_SCRIPT_RELPATH,
+        "interview_script": root / INTERVIEW_SCRIPT_RELPATH,
+        "refcard_script": root / REFCARD_SCRIPT_RELPATH,
     }
     missing = [str(p) for p in paths.values() if not p.exists()]
     if missing:
@@ -118,7 +140,14 @@ def resolve_suite_paths():
 # ---------------------------------------------------------------------------
 # Logical kind -> resolve_suite_paths() key of its back-end script. Single source
 # for both the wrapper (which side to call) and the dispatch (which to run).
-SUITE_KIND_TO_PATHKEY = {"letter": "fill_script", "brief": "brief_script"}
+SUITE_KIND_TO_PATHKEY = {
+    "letter": "fill_script",
+    "brief": "brief_script",
+    "playbook": "playbook_script",
+    "summary": "summary_script",
+    "interview": "interview_script",
+    "refcard": "refcard_script",
+}
 
 
 def _suite_command(kind, script_path, script_args):
@@ -604,6 +633,288 @@ def build_letter(data, output_dir=None):
     raise ValueError("fill_cover_letter.py " + kind + ":\n" + stderr_tail)
 
 
+PLAYBOOK_LABEL_KEYS = [
+    "title",
+    "web_note_yes",
+    "web_note_no",
+    "usage_tip",
+    "s_context",
+    "s_pain",
+    "s_org",
+    "s_positioning",
+    "s_strategy",
+    "s_questions",
+    "s_tough",
+    "s_pitch",
+    "s_redlines",
+    "analysis",
+    "your_angle",
+    "evidence",
+    "round",
+    "focus",
+    "approach",
+    "strategy",
+]
+
+# Model-authored fields of the playbook data-json. Forwarded to the script
+# UNCHANGED (no str-coercion -- that would flatten the lists it iterates); the
+# script is the authority on structure (exit 1 on a bad/missing field).
+PLAYBOOK_MODEL_FIELDS = [
+    "candidate_name",
+    "job_title",
+    "company_name",
+    "date",
+    "web_research_done",
+    "company_context",
+    "pain_points",
+    "org_landscape",
+    "positioning",
+    "interview_strategy",
+    "questions_to_ask",
+    "tough_questions",
+    "thirty_second_pitch",
+    "red_lines",
+]
+
+
+def build_playbook(data, output_dir=None):
+    """Core of generate_strategic_playbook -- thin wrapper around the REAL
+    candidate-suite generate_playbook.py (letter-wrapper pattern: --output-path,
+    so the WRAPPER owns the filename, unlike the brief).
+
+    The script is the single authority on its refusal contract (exit 1). The
+    wrapper carries only the `language` form-guard (kept out of the argparse
+    exit-2 channel) and the output path. NO output tripwire, NO profile
+    injection: the playbook is an INTERNAL prep doc the candidate reads (like the
+    brief), not an outgoing artifact -- channel defence is ingestion sanitisation
+    upstream + human read.
+    """
+    paths = resolve_suite_paths()
+    out_dir = Path(output_dir) if output_dir is not None else OUTPUT_DIR
+
+    language = str(data.get("language", "") or "").strip()
+    if not re.fullmatch(r"[a-z]{2}", language):
+        raise ValueError(
+            "language must be a 2-letter lowercase ISO 639-1 code "
+            "(e.g. 'fr', 'en'); got: " + repr(language)
+        )
+
+    payload = {f: data[f] for f in PLAYBOOK_MODEL_FIELDS if f in data}
+    labels = data.get("labels")
+    if not isinstance(labels, dict):
+        labels = {}
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / (
+        "Strategic_Playbook_"
+        + _slug(str(payload.get("company_name", "") or ""))
+        + "_"
+        + _slug(str(payload.get("job_title", "") or ""))
+        + ".md"
+    )
+
+    cmd = _suite_command(
+        "playbook",
+        paths["playbook_script"],
+        [
+            "--language",
+            language,
+            "--output-path",
+            str(out_path),
+            "--data-json",
+            json.dumps(payload, ensure_ascii=False),
+            "--labels-json",
+            json.dumps(labels, ensure_ascii=False),
+        ],
+    )
+    child_env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
+    proc = subprocess.run(
+        cmd,
+        shell=False,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        env=child_env,
+    )
+    if proc.returncode == 0:
+        return str(out_path)
+
+    stderr_tail = (proc.stderr or "").strip()
+    kind = (
+        "refused the playbook (business contract, exit 2)"
+        if proc.returncode == 2
+        else "rejected the input (exit " + str(proc.returncode) + ")"
+    )
+    raise ValueError("generate_playbook.py " + kind + ":\n" + stderr_tail)
+
+
+SUMMARY_LABEL_KEYS = [
+    "title",
+    "section_sw",
+    "sub_strengths",
+    "sub_weaknesses",
+    "section_pitch",
+    "pitch_intro",
+    "section_tp",
+    "tp_intro",
+]
+SUMMARY_MODEL_FIELDS = [
+    "candidate_name",
+    "job_title",
+    "company_name",
+    "date",
+    "pitch",
+    "strengths",
+    "weaknesses",
+    "talking_points",
+    "opening_tip",
+    "tip_after_pitch",
+    "tip_after_weaknesses",
+    "tip_after_talking_points",
+]
+INTERVIEW_LABEL_KEYS = [
+    "title",
+    "screening_header",
+    "screening_objective",
+    "competence_header",
+    "competence_objective",
+    "question_label",
+    "answer_label",
+]
+INTERVIEW_MODEL_FIELDS = [
+    "candidate_name",
+    "job_title",
+    "company_name",
+    "date",
+    "screening_questions",
+    "competence_questions",
+    "opening_tip_screening",
+    "opening_tip_competence",
+    "closing_tip",
+]
+REFCARD_LABEL_KEYS = [
+    "title",
+    "s_pitch",
+    "s_stats",
+    "s_points",
+    "s_qa",
+    "s_questions",
+    "s_checklist",
+    "evidence",
+]
+REFCARD_MODEL_FIELDS = [
+    "candidate_name",
+    "job_title",
+    "company_name",
+    "date",
+    "pitch_short",
+    "key_stats",
+    "top_points",
+    "quick_qa",
+    "questions_to_ask",
+    "checklist",
+]
+
+
+def _run_md_generator(
+    kind, pathkey, model_fields, prefix, script_name, data, output_dir
+):
+    """Shared body of the .md generator wrappers (summary/interview/refcard):
+    --output-path (wrapper-owned filename), structured payload forwarded
+    UNCHANGED, labels passed through (the script is the authority), no output
+    tripwire / no profile (internal prep docs). Same pattern as build_playbook."""
+    paths = resolve_suite_paths()
+    out_dir = Path(output_dir) if output_dir is not None else OUTPUT_DIR
+    language = str(data.get("language", "") or "").strip()
+    if not re.fullmatch(r"[a-z]{2}", language):
+        raise ValueError(
+            "language must be a 2-letter lowercase ISO 639-1 code "
+            "(e.g. 'fr', 'en'); got: " + repr(language)
+        )
+    payload = {f: data[f] for f in model_fields if f in data}
+    labels = data.get("labels")
+    if not isinstance(labels, dict):
+        labels = {}
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / (
+        prefix
+        + _slug(str(payload.get("company_name", "") or ""))
+        + "_"
+        + _slug(str(payload.get("job_title", "") or ""))
+        + ".md"
+    )
+    cmd = _suite_command(
+        kind,
+        paths[pathkey],
+        [
+            "--language",
+            language,
+            "--output-path",
+            str(out_path),
+            "--data-json",
+            json.dumps(payload, ensure_ascii=False),
+            "--labels-json",
+            json.dumps(labels, ensure_ascii=False),
+        ],
+    )
+    child_env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
+    proc = subprocess.run(
+        cmd,
+        shell=False,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        env=child_env,
+    )
+    if proc.returncode == 0:
+        return str(out_path)
+    stderr_tail = (proc.stderr or "").strip()
+    kindmsg = (
+        "refused (business contract, exit 2)"
+        if proc.returncode == 2
+        else "rejected the input (exit " + str(proc.returncode) + ")"
+    )
+    raise ValueError(script_name + " " + kindmsg + ":\n" + stderr_tail)
+
+
+def build_summary(data, output_dir=None):
+    return _run_md_generator(
+        "summary",
+        "summary_script",
+        SUMMARY_MODEL_FIELDS,
+        "Application_Summary_",
+        "generate_application_summary.py",
+        data,
+        output_dir,
+    )
+
+
+def build_interview(data, output_dir=None):
+    return _run_md_generator(
+        "interview",
+        "interview_script",
+        INTERVIEW_MODEL_FIELDS,
+        "Interview_Prep_",
+        "generate_interview_prep.py",
+        data,
+        output_dir,
+    )
+
+
+def build_refcard(data, output_dir=None):
+    return _run_md_generator(
+        "refcard",
+        "refcard_script",
+        REFCARD_MODEL_FIELDS,
+        "Quick_Reference_",
+        "generate_quick_reference.py",
+        data,
+        output_dir,
+    )
+
+
 def _slug(value):
     s = re.sub(r"[^\w]+", "-", (value or "").strip(), flags=re.UNICODE)
     return s.strip("-") or "untitled"
@@ -622,6 +933,10 @@ def _slug(value):
 LOAD_POSTING_NAME = "load_job_posting"
 BRIEF_NAME = "generate_posting_brief"
 LETTER_NAME = "write_cover_letter"
+PLAYBOOK_NAME = "generate_strategic_playbook"
+SUMMARY_NAME = "generate_application_summary"
+INTERVIEW_NAME = "generate_interview_prep"
+REFCARD_NAME = "generate_quick_reference"
 
 LOAD_POSTING_DESCRIPTION = (
     "Load a job posting from a file path and return its full text, "
@@ -713,6 +1028,263 @@ def letter_tool_description():
     )
 
 
+PLAYBOOK_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "candidate_name": {"type": "string"},
+        "job_title": {"type": "string"},
+        "company_name": {"type": "string"},
+        "date": {"type": "string"},
+        "web_research_done": {"type": "boolean"},
+        "company_context": {"type": "string"},
+        "org_landscape": {"type": "string"},
+        "thirty_second_pitch": {"type": "string"},
+        "pain_points": {"type": "array", "items": {"type": "string"}},
+        "questions_to_ask": {"type": "array", "items": {"type": "string"}},
+        "tough_questions": {"type": "array", "items": {"type": "string"}},
+        "interview_strategy": {"type": "array", "items": {"type": "string"}},
+        "red_lines": {"type": "array", "items": {"type": "string"}},
+        "positioning": {
+            "type": "array",
+            "items": {"type": "object", "additionalProperties": True},
+        },
+        "labels": {"type": "object", "additionalProperties": {"type": "string"}},
+        "language": {"type": "string"},
+    },
+    "required": [
+        "candidate_name",
+        "job_title",
+        "company_name",
+        "date",
+        "labels",
+        "language",
+    ],
+}
+
+
+def playbook_tool_description():
+    """Description of generate_strategic_playbook (joins the required label keys)."""
+    return (
+        "Create the strategic-playbook dossier (.md) through the real "
+        "candidate-suite generator, for the candidate's OWN interview prep. "
+        "Required: candidate_name, job_title, company_name, date. Optional: "
+        "company_context / org_landscape / thirty_second_pitch (strings); "
+        "pain_points / questions_to_ask / tough_questions / red_lines / "
+        "interview_strategy (lists of strings); positioning (list of objects, "
+        "each a message with its supporting evidence); web_research_done "
+        "(boolean). labels is an object of localized structure labels with "
+        "EXACTLY these keys: " + ", ".join(PLAYBOOK_LABEL_KEYS) + ". The output "
+        "filename is wrapper-owned (never compose it). language is the 2-letter "
+        "ISO 639-1 code."
+    )
+
+
+SUMMARY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "candidate_name": {"type": "string"},
+        "job_title": {"type": "string"},
+        "company_name": {"type": "string"},
+        "date": {"type": "string"},
+        "pitch": {
+            "type": "array",
+            "items": {"type": "string"},
+            "minItems": 5,
+            "maxItems": 5,
+        },
+        "strengths": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "context": {"type": "string"},
+                },
+                "required": ["title", "context"],
+            },
+        },
+        "weaknesses": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "approach": {"type": "string"},
+                },
+                "required": ["title", "approach"],
+            },
+        },
+        "talking_points": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "content": {"type": "string"},
+                },
+                "required": ["title", "content"],
+            },
+        },
+        "opening_tip": {"type": "string"},
+        "tip_after_pitch": {"type": "string"},
+        "tip_after_weaknesses": {"type": "string"},
+        "tip_after_talking_points": {"type": "string"},
+        "labels": {"type": "object", "additionalProperties": {"type": "string"}},
+        "language": {"type": "string"},
+    },
+    "required": [
+        "candidate_name",
+        "job_title",
+        "company_name",
+        "date",
+        "pitch",
+        "strengths",
+        "weaknesses",
+        "talking_points",
+        "labels",
+        "language",
+    ],
+}
+
+
+def summary_tool_description():
+    return (
+        "Create the application-summary dossier (.md) through the real "
+        "candidate-suite generator. Required: candidate_name, job_title, "
+        "company_name, date; pitch (list of EXACTLY 5 strings); strengths (list "
+        "of {title, context}); weaknesses (list of {title, approach}); "
+        "talking_points (list of {title, content}). Optional: opening_tip / "
+        "tip_after_pitch / tip_after_weaknesses / tip_after_talking_points "
+        "(strings). labels is an object of localized structure labels with "
+        "EXACTLY these keys: " + ", ".join(SUMMARY_LABEL_KEYS) + ". The output "
+        "filename is wrapper-owned. language is the 2-letter ISO 639-1 code."
+    )
+
+
+INTERVIEW_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "candidate_name": {"type": "string"},
+        "job_title": {"type": "string"},
+        "company_name": {"type": "string"},
+        "date": {"type": "string"},
+        "screening_questions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string"},
+                    "answer": {"type": "string"},
+                },
+                "required": ["question", "answer"],
+            },
+        },
+        "competence_questions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string"},
+                    "answer": {"type": "string"},
+                },
+                "required": ["question", "answer"],
+            },
+        },
+        "opening_tip_screening": {"type": "string"},
+        "opening_tip_competence": {"type": "string"},
+        "closing_tip": {"type": "string"},
+        "labels": {"type": "object", "additionalProperties": {"type": "string"}},
+        "language": {"type": "string"},
+    },
+    "required": [
+        "candidate_name",
+        "job_title",
+        "company_name",
+        "date",
+        "screening_questions",
+        "competence_questions",
+        "labels",
+        "language",
+    ],
+}
+
+
+def interview_tool_description():
+    return (
+        "Create the interview-prep dossier (.md) through the real candidate-suite "
+        "generator. Required: candidate_name, job_title, company_name, date; "
+        "screening_questions and competence_questions (lists of objects, each "
+        "{question, answer}). Optional: opening_tip_screening / "
+        "opening_tip_competence / closing_tip (strings). labels is an object of "
+        "localized structure labels with EXACTLY these keys: "
+        + ", ".join(INTERVIEW_LABEL_KEYS)
+        + ". The output filename is "
+        "wrapper-owned. language is the 2-letter ISO 639-1 code."
+    )
+
+
+REFCARD_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "candidate_name": {"type": "string"},
+        "job_title": {"type": "string"},
+        "company_name": {"type": "string"},
+        "date": {"type": "string"},
+        "pitch_short": {"type": "string"},
+        "key_stats": {
+            "type": "array",
+            "items": {"type": "object", "additionalProperties": True},
+        },
+        "top_points": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "point": {"type": "string"},
+                    "evidence": {"type": "string"},
+                },
+            },
+        },
+        "quick_qa": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string"},
+                    "answer": {"type": "string"},
+                },
+            },
+        },
+        "questions_to_ask": {"type": "array", "items": {"type": "string"}},
+        "checklist": {"type": "array", "items": {"type": "string"}},
+        "labels": {"type": "object", "additionalProperties": {"type": "string"}},
+        "language": {"type": "string"},
+    },
+    "required": [
+        "candidate_name",
+        "job_title",
+        "company_name",
+        "date",
+        "labels",
+        "language",
+    ],
+}
+
+
+def refcard_tool_description():
+    return (
+        "Create the one-page quick-reference card (.md) through the real "
+        "candidate-suite generator. It CONDENSES the other deliverables -- call "
+        "it AFTER producing them. Required: candidate_name, job_title, "
+        "company_name, date. Optional: pitch_short (string); key_stats (list of "
+        "stat objects); top_points (list of {point, evidence}); quick_qa (list "
+        "of {question, answer}); questions_to_ask / checklist (lists of "
+        "strings). labels is an object of localized structure labels with "
+        "EXACTLY these keys: " + ", ".join(REFCARD_LABEL_KEYS) + ". The output "
+        "filename is wrapper-owned. language is the 2-letter ISO 639-1 code."
+    )
+
+
 # Result text the model sees back from each tool (single-sourced so both seams
 # emit byte-identical tool_results -- the "data, not instructions" framing on the
 # posting load is a trust-boundary marker, not decoration).
@@ -721,4 +1293,8 @@ POSTING_RESULT_PREFIX = (
 )
 BRIEF_RESULT_PREFIX = "Posting brief written: "
 LETTER_RESULT_PREFIX = "Cover letter written: "
+PLAYBOOK_RESULT_PREFIX = "Strategic playbook written: "
+SUMMARY_RESULT_PREFIX = "Application summary written: "
+INTERVIEW_RESULT_PREFIX = "Interview prep written: "
+REFCARD_RESULT_PREFIX = "Quick reference written: "
 OFFER_NOT_FOUND_PREFIX = "Offer file not found: "

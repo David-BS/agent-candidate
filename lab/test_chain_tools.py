@@ -140,6 +140,96 @@ NOMINAL_BRIEF = {
 }
 
 
+# --- Suite-coverage generators: nominal payloads (verified shapes; the script
+# is the authority). Object-shaped fields match each generate_*_md body:
+# summary strengths={title,context}/weaknesses={title,approach}/talking_points=
+# {title,content}+pitch(5 strings); interview screening/competence={question,
+# answer}; refcard CONDENSES the others -- its REAL contract demands pitch_short
+# AND >=4 of 6 content sections, else it refuses (exit 2).
+_GEN_BASE = {
+    "candidate_name": "Robin Mercier",
+    "job_title": "Staff Platform Engineer",
+    "company_name": "Helvetia Robotics SA",
+    "date": "2026-06-14",
+    "language": "en",
+}
+NOMINAL_PLAYBOOK = dict(
+    _GEN_BASE, labels={k: k for k in chain.core.PLAYBOOK_LABEL_KEYS}
+)
+NOMINAL_SUMMARY = dict(
+    _GEN_BASE,
+    labels={k: k for k in chain.core.SUMMARY_LABEL_KEYS},
+    pitch=["s1", "s2", "s3", "s4", "s5"],
+    strengths=[{"title": "Ownership", "context": "led the platform migration"}],
+    weaknesses=[{"title": "Public speaking", "approach": "joined a workshop"}],
+    talking_points=[{"title": "Reliability", "content": "cut incidents by 40%"}],
+)
+NOMINAL_INTERVIEW = dict(
+    _GEN_BASE,
+    labels={k: k for k in chain.core.INTERVIEW_LABEL_KEYS},
+    screening_questions=[{"question": "Why us?", "answer": "Mission fit."}],
+    competence_questions=[
+        {"question": "Design an SLO.", "answer": "From user journeys."}
+    ],
+)
+NOMINAL_REFCARD = dict(
+    _GEN_BASE,
+    labels={k: k for k in chain.core.REFCARD_LABEL_KEYS},
+    pitch_short="Staff engineer who scales platforms reliably.",
+    top_points=[{"point": "Reliability", "evidence": "cut incidents by 40%"}],
+    quick_qa=[{"question": "Why us?", "answer": "Mission fit."}],
+    questions_to_ask=["What does success look like in six months?"],
+    checklist=["Bring the portfolio", "Review the SLOs"],
+)
+
+
+def _exercise_md_generator(
+    tools, tool_name, result_prefix, prefix, fixture, label_keys
+):
+    """Shared floor exercise for the 4 suite-coverage .md generators: nominal
+    generation through the REAL script + the two uniform guards (the wrapper
+    language form-guard, and the script's structure guard via a dropped label
+    key). No profile / no output tripwire -- these are internal prep docs."""
+    res = run_handler(tools[tool_name], dict(fixture))
+    check(tool_name + " nominal -> not is_error", not res.get("is_error"))
+    written = res["content"][0]["text"].replace(result_prefix, "")
+    check(tool_name + " output is a .md", written.endswith(".md"))
+    check(tool_name + " file exists", Path(written).exists())
+    check(
+        tool_name + " output lands in runs/ next to the chain file",
+        Path(written).parent.resolve() == chain.OUTPUT_DIR.resolve(),
+    )
+    expected = (
+        prefix
+        + chain.core._slug(fixture["company_name"])
+        + "_"
+        + chain.core._slug(fixture["job_title"])
+        + ".md"
+    )
+    check(
+        tool_name + " filename is WRAPPER-owned (no datestamp, --output-path)",
+        Path(written).name == expected,
+    )
+    md = Path(written).read_text(encoding="utf-8")
+    check(
+        tool_name + " meta line carries candidate identity (real data filled)",
+        "Robin Mercier" in md and "Helvetia Robotics SA" in md,
+    )
+    check(tool_name + " structure intact (H1 rendered)", md.lstrip().startswith("# "))
+    res = run_handler(tools[tool_name], dict(fixture, language="english"))
+    check(
+        tool_name + " non-ISO language -> is_error (wrapper guard)",
+        res.get("is_error") is True and "ISO 639-1" in res["content"][0]["text"],
+    )
+    bad = {k: k for k in label_keys}
+    bad.pop("title")
+    res = run_handler(tools[tool_name], dict(fixture, labels=bad))
+    check(
+        tool_name + " wrong label key set -> is_error (script structure guard)",
+        res.get("is_error") is True,
+    )
+
+
 def main():
     print("Deterministic floor — brief_to_letter_chain")
     print("Offer fixture: " + DEFAULT_OFFER + "   (channel: " + CHANNEL + ")\n")
@@ -148,8 +238,17 @@ def main():
     try:
         paths = chain.resolve_suite_paths()
         check(
-            "CANDIDATE_SUITE_DIR resolves (letter + brief scripts + template found)",
-            set(paths) == {"fill_script", "template", "brief_script"},
+            "CANDIDATE_SUITE_DIR resolves (all 7 suite paths: 6 scripts + template)",
+            set(paths)
+            == {
+                "fill_script",
+                "template",
+                "brief_script",
+                "playbook_script",
+                "summary_script",
+                "interview_script",
+                "refcard_script",
+            },
         )
     except RuntimeError as e:
         check("CANDIDATE_SUITE_DIR resolves -- " + str(e), False)
@@ -296,6 +395,56 @@ def main():
     check(
         "non-ISO language -> is_error from the wrapper guard",
         res.get("is_error") is True and "ISO 639-1" in res["content"][0]["text"],
+    )
+
+    print("\n[4d-g] Suite-coverage generators -- through the REAL generate_*.py")
+    _exercise_md_generator(
+        tools,
+        "generate_strategic_playbook",
+        "Strategic playbook written: ",
+        "Strategic_Playbook_",
+        NOMINAL_PLAYBOOK,
+        chain.core.PLAYBOOK_LABEL_KEYS,
+    )
+    _exercise_md_generator(
+        tools,
+        "generate_application_summary",
+        "Application summary written: ",
+        "Application_Summary_",
+        NOMINAL_SUMMARY,
+        chain.core.SUMMARY_LABEL_KEYS,
+    )
+    _exercise_md_generator(
+        tools,
+        "generate_interview_prep",
+        "Interview prep written: ",
+        "Interview_Prep_",
+        NOMINAL_INTERVIEW,
+        chain.core.INTERVIEW_LABEL_KEYS,
+    )
+    _exercise_md_generator(
+        tools,
+        "generate_quick_reference",
+        "Quick reference written: ",
+        "Quick_Reference_",
+        NOMINAL_REFCARD,
+        chain.core.REFCARD_LABEL_KEYS,
+    )
+    # refcard alone carries a substantiality contract (exit 2): the card CONDENSES
+    # the other docs, so the REAL script demands pitch_short AND >=4 of 6 content
+    # sections. A pitch with too few sections is declined -- proven here.
+    res = run_handler(
+        tools["generate_quick_reference"],
+        dict(
+            _GEN_BASE,
+            labels={k: k for k in chain.core.REFCARD_LABEL_KEYS},
+            pitch_short="Short pitch.",
+            checklist=["one item"],
+        ),
+    )
+    check(
+        "thin reference card (pitch + <4 sections) -> is_error (real exit 2)",
+        res.get("is_error") is True and "exit 2" in res["content"][0]["text"],
     )
 
     print("\n[5] Nominal cover letter -- through the REAL fill_cover_letter.py")
@@ -474,12 +623,16 @@ def main():
     print("\n[7] SDK options — least privilege (allow-list)")
     options = chain.build_agent_options()
     check(
-        "allowed_tools lists exactly the three custom tools",
+        "allowed_tools lists exactly the seven custom tools",
         set(options.allowed_tools)
         == {
             "mcp__chain__load_job_posting",
             "mcp__chain__generate_posting_brief",
             "mcp__chain__write_cover_letter",
+            "mcp__chain__generate_strategic_playbook",
+            "mcp__chain__generate_application_summary",
+            "mcp__chain__generate_interview_prep",
+            "mcp__chain__generate_quick_reference",
         },
     )
     check(

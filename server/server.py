@@ -40,7 +40,7 @@ from mcp.server.lowlevel import Server
 
 import chain_core as core
 
-server = Server(core.SERVER_NAME)
+server = Server(core.SERVER_NAME, version=core.SERVER_VERSION)
 
 
 @server.list_tools()
@@ -62,6 +62,26 @@ async def list_tools() -> list[types.Tool]:
             name=core.LETTER_NAME,
             description=core.letter_tool_description(),
             inputSchema=core.LETTER_SCHEMA,
+        ),
+        types.Tool(
+            name=core.PLAYBOOK_NAME,
+            description=core.playbook_tool_description(),
+            inputSchema=core.PLAYBOOK_SCHEMA,
+        ),
+        types.Tool(
+            name=core.SUMMARY_NAME,
+            description=core.summary_tool_description(),
+            inputSchema=core.SUMMARY_SCHEMA,
+        ),
+        types.Tool(
+            name=core.INTERVIEW_NAME,
+            description=core.interview_tool_description(),
+            inputSchema=core.INTERVIEW_SCHEMA,
+        ),
+        types.Tool(
+            name=core.REFCARD_NAME,
+            description=core.refcard_tool_description(),
+            inputSchema=core.REFCARD_SCHEMA,
         ),
     ]
 
@@ -105,6 +125,34 @@ async def call_tool(name: str, arguments: dict):
         except ValueError as e:
             return _error(str(e))
         return _text(core.LETTER_RESULT_PREFIX + path)
+
+    if name == core.PLAYBOOK_NAME:
+        try:
+            path = core.build_playbook(arguments)
+        except ValueError as e:
+            return _error(str(e))
+        return _text(core.PLAYBOOK_RESULT_PREFIX + path)
+
+    if name == core.SUMMARY_NAME:
+        try:
+            path = core.build_summary(arguments)
+        except ValueError as e:
+            return _error(str(e))
+        return _text(core.SUMMARY_RESULT_PREFIX + path)
+
+    if name == core.INTERVIEW_NAME:
+        try:
+            path = core.build_interview(arguments)
+        except ValueError as e:
+            return _error(str(e))
+        return _text(core.INTERVIEW_RESULT_PREFIX + path)
+
+    if name == core.REFCARD_NAME:
+        try:
+            path = core.build_refcard(arguments)
+        except ValueError as e:
+            return _error(str(e))
+        return _text(core.REFCARD_RESULT_PREFIX + path)
 
     return _error("Unknown tool: " + str(name))
 

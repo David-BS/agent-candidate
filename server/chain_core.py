@@ -52,6 +52,11 @@ from pathlib import Path
 # Core configuration
 # ---------------------------------------------------------------------------
 SERVER_NAME = "chain"  # tools resolve as mcp__chain__<tool>
+# Single Python source of the product version. PARITY-CHECKED against
+# manifest.json by test_frozen_server T0 (serverInfo.version == manifest), the
+# same shape as the tools/list <-> manifest parity (T1). Bump here AND in the
+# manifest in the same commit; the assert refuses a half-bump.
+SERVER_VERSION = "0.1.1"
 
 # Language-neutral sentinel, identical to the real scripts (LNG-2 S3b):
 # a critical field that is empty OR equals this token is refused, never invented.

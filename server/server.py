@@ -40,7 +40,7 @@ from mcp.server.lowlevel import Server
 
 import chain_core as core
 
-server = Server(core.SERVER_NAME)
+server = Server(core.SERVER_NAME, version=core.SERVER_VERSION)
 
 
 @server.list_tools()

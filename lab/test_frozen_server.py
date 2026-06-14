@@ -105,6 +105,15 @@ MANIFEST_TOOLS = {
     )["tools"]
 }
 
+# Product version the server advertises at the initialize handshake
+# (serverInfo.version). Bound to the SAME manifest so a bump in one place
+# without the other fails T0 -- the version analogue of the tools parity above.
+MANIFEST_VERSION = json.loads(
+    (Path(__file__).resolve().parent.parent / "manifest.json").read_text(
+        encoding="utf-8"
+    )
+)["version"]
+
 
 class Fail(Exception):
     """A tier assertion failed -> exit 1."""
@@ -180,6 +189,13 @@ async def _run_tiers(command, server_args, fixture, suite_dir, out_dir, errlog):
             _check(
                 init.serverInfo.name == core.SERVER_NAME,
                 "serverInfo.name %r != %r" % (init.serverInfo.name, core.SERVER_NAME),
+            )
+            _check(
+                init.serverInfo.version == MANIFEST_VERSION,
+                "serverInfo.version %r != manifest %r (version wiring missing or "
+                "half-bumped: Server(version=core.SERVER_VERSION) and manifest.json "
+                "must move together)"
+                % (init.serverInfo.version, MANIFEST_VERSION),
             )
             _check(bool(init.protocolVersion), "empty protocolVersion")
             _emit(

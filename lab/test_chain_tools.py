@@ -1112,6 +1112,58 @@ def main():
             ar.aggregate(_loaded).n_total == 2,
         )
 
+    # [D] Output-dir resolution fallback (Finding A). The host can leave a
+    # ${...} user_config default literal on the unpacked install path; the
+    # resolver must never treat it as a real path. env + sys.frozen saved and
+    # restored, same discipline as [8a]. resolve_output_dir() does NOT mkdir
+    # (the builders do), so these checks create nothing.
+    print("[D] Output-dir fallback (Finding A: unexpanded ${...} / frozen)")
+    _od_env_saved = _os.environ.get("AGENT_CANDIDATE_OUTPUT_DIR")
+    _od_frozen_saved = getattr(sys, "frozen", None)
+    try:
+        _os.environ["AGENT_CANDIDATE_OUTPUT_DIR"] = "${DOCUMENTS}"
+        check(
+            "[D1] unexpanded ${...} -> home fallback, not a literal dir",
+            chain.core.resolve_output_dir() == Path.home() / "agent-candidate",
+        )
+        check(
+            "[D2] fallback surfaces a non-empty result notice",
+            chain.core.output_dir_notice().strip() != "",
+        )
+        _od_real = str(Path(tempfile.gettempdir()) / "ac-out-floor")
+        _os.environ["AGENT_CANDIDATE_OUTPUT_DIR"] = _od_real
+        check(
+            "[D3] a real path is honoured unchanged",
+            chain.core.resolve_output_dir() == Path(_od_real),
+        )
+        check(
+            "[D4] no notice when the configured path resolved",
+            chain.core.output_dir_notice() == "",
+        )
+        _os.environ.pop("AGENT_CANDIDATE_OUTPUT_DIR", None)
+        if hasattr(sys, "frozen"):
+            del sys.frozen
+        check(
+            "[D5] absent & dev -> next to module (floor-safe, unchanged)",
+            chain.core.resolve_output_dir()
+            == Path(chain.core.__file__).parent / "runs",
+        )
+        sys.frozen = True
+        check(
+            "[D6] absent & frozen -> read-only bundle, home fallback",
+            chain.core.resolve_output_dir() == Path.home() / "agent-candidate",
+        )
+    finally:
+        if _od_env_saved is None:
+            _os.environ.pop("AGENT_CANDIDATE_OUTPUT_DIR", None)
+        else:
+            _os.environ["AGENT_CANDIDATE_OUTPUT_DIR"] = _od_env_saved
+        if _od_frozen_saved is None:
+            if hasattr(sys, "frozen"):
+                del sys.frozen
+        else:
+            sys.frozen = _od_frozen_saved
+
     print("\n" + "-" * 48)
     print("PASSED: " + str(_passed) + "   FAILED: " + str(_failed))
     sys.exit(1 if _failed else 0)

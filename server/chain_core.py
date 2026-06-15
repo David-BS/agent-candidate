@@ -100,9 +100,67 @@ CANDIDATE_TIMEZONE = "Europe/Paris"
 # Overridable by env for DEPLOYMENT: the frozen binary cannot write next to
 # itself (read-only / temp extract), so the host points OUTPUT_DIR at a
 # user-writable dir (manifest user_config / ${HOME}); unset -> next to module.
-OUTPUT_DIR = Path(
-    os.environ.get("AGENT_CANDIDATE_OUTPUT_DIR", str(Path(__file__).parent / "runs"))
-)
+_OUTPUT_DIR_ENV = "AGENT_CANDIDATE_OUTPUT_DIR"
+
+# A ${...} token the host was supposed to substitute but left literal. On the
+# unpacked install path Claude Desktop expands ${__dirname} but NOT the path
+# variables of a user_config default (e.g. ${DOCUMENTS}), so that default reaches
+# us verbatim -- a host gap (upstream), not our manifest. os.path.expandvars only
+# handles %VAR% on Windows, never ${VAR}, so we cannot expand it ourselves; the
+# robust answer is a fallback, not a re-implementation of the host's table.
+_UNEXPANDED_TOKEN_RE = re.compile(r"\$\{[^}]+\}")
+
+
+def _fallback_output_dir():
+    """A user-writable, host-independent home for output when the configured one
+    is unusable. Deliberately ~/agent-candidate, NOT ~/Documents: the real
+    Documents may be OneDrive-redirected, and resolving that redirection is the
+    host's job, not ours -- we write to a plain, named place we own."""
+    return Path.home() / "agent-candidate"
+
+
+def _output_dir_fell_back(raw):
+    """True when the env value cannot serve as a write target: a ${...} token the
+    host failed to expand, or absent while frozen (the bundle dir is read-only /
+    a temp extract). Absent-and-not-frozen is fine -- dev writes next to the
+    module, which keeps the floor's OUTPUT_DIR assertion true."""
+    if raw and _UNEXPANDED_TOKEN_RE.search(raw):
+        return True
+    if not raw and getattr(sys, "frozen", False):
+        return True
+    return False
+
+
+def resolve_output_dir():
+    """Single source of the output-directory decision. The OUTPUT_DIR constant
+    below is just this applied at import (the host sets the env before the server
+    process starts); tests call this directly with an injected env."""
+    raw = os.environ.get(_OUTPUT_DIR_ENV)
+    if _output_dir_fell_back(raw):
+        return _fallback_output_dir()
+    if raw:
+        return Path(raw)
+    return Path(__file__).parent / "runs"
+
+
+def output_dir_notice():
+    """A short, ASCII, user-facing note appended to a file-writing tool's result
+    when the output dir fell back, so the relocation is never silent. Empty when
+    the configured directory resolved normally."""
+    if _output_dir_fell_back(os.environ.get(_OUTPUT_DIR_ENV)):
+        return (
+            "\n\n[note] The host did not provide a usable Output folder, so the "
+            "file was saved to " + str(_fallback_output_dir()) + " instead. Set "
+            "the extension's Output folder to choose another location."
+        )
+    return ""
+
+
+# Output directory anchored to THIS file in dev, not the CWD -- settles the
+# output_dir="." debt. runs/ is gitignored. At deployment the host points the env
+# at a user-writable dir; resolve_output_dir() covers the cases where it can't
+# (an unexpanded ${...} token, or absent under the frozen read-only bundle).
+OUTPUT_DIR = resolve_output_dir()
 
 
 def resolve_suite_paths():

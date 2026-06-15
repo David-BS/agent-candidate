@@ -117,42 +117,42 @@ async def call_tool(name: str, arguments: dict):
             path = core.build_brief(arguments)
         except ValueError as e:
             return _error(str(e))
-        return _text(core.BRIEF_RESULT_PREFIX + path)
+        return _text(core.BRIEF_RESULT_PREFIX + path + core.output_dir_notice())
 
     if name == core.LETTER_NAME:
         try:
             path = core.build_letter(arguments)
         except ValueError as e:
             return _error(str(e))
-        return _text(core.LETTER_RESULT_PREFIX + path)
+        return _text(core.LETTER_RESULT_PREFIX + path + core.output_dir_notice())
 
     if name == core.PLAYBOOK_NAME:
         try:
             path = core.build_playbook(arguments)
         except ValueError as e:
             return _error(str(e))
-        return _text(core.PLAYBOOK_RESULT_PREFIX + path)
+        return _text(core.PLAYBOOK_RESULT_PREFIX + path + core.output_dir_notice())
 
     if name == core.SUMMARY_NAME:
         try:
             path = core.build_summary(arguments)
         except ValueError as e:
             return _error(str(e))
-        return _text(core.SUMMARY_RESULT_PREFIX + path)
+        return _text(core.SUMMARY_RESULT_PREFIX + path + core.output_dir_notice())
 
     if name == core.INTERVIEW_NAME:
         try:
             path = core.build_interview(arguments)
         except ValueError as e:
             return _error(str(e))
-        return _text(core.INTERVIEW_RESULT_PREFIX + path)
+        return _text(core.INTERVIEW_RESULT_PREFIX + path + core.output_dir_notice())
 
     if name == core.REFCARD_NAME:
         try:
             path = core.build_refcard(arguments)
         except ValueError as e:
             return _error(str(e))
-        return _text(core.REFCARD_RESULT_PREFIX + path)
+        return _text(core.REFCARD_RESULT_PREFIX + path + core.output_dir_notice())
 
     return _error("Unknown tool: " + str(name))
 

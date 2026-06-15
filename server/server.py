@@ -32,6 +32,7 @@ the JSON-RPC transport -- never print to stdout here).
 """
 
 import asyncio
+import os
 import sys
 
 import mcp.server.stdio
@@ -176,3 +177,20 @@ if __name__ == "__main__":
     # server (recursive spawn). A normal launch carries no --run and proceeds.
     core.dispatch_suite_run(sys.argv[1:])
     asyncio.run(main())
+    # asyncio.run returns once the host closes stdin (EOF) and server.run
+    # completes: the server contract is fully discharged and every JSON-RPC reply
+    # has already been flushed by the transport (it flushes per message). Exit via
+    # os._exit instead of falling through to interpreter shutdown, where two
+    # teardown hazards live -- both AFTER the result, neither a real failure:
+    #   - anyio runs the stdin readline() in a worker thread that can still be
+    #     parked on the now-closed stdin handle and raise at finalization;
+    #   - the transport wrapped sys.stdout in a TextIOWrapper whose finalizer
+    #     closes the underlying buffer, so sys.stdout is ALREADY closed here --
+    #     touching it (even a flush) raises `ValueError: I/O operation on closed
+    #     file`. So we deliberately do NOT flush; there is nothing of ours left to
+    #     flush anyway.
+    # os._exit is a raw _exit syscall: it runs no finalizers (none matter -- no
+    # atexit, the host owns lifecycle) and touches no std stream, so neither hazard
+    # fires. A genuine failure during the run propagates out of asyncio.run ABOVE
+    # this line, so real crashes still exit non-zero with their traceback.
+    os._exit(0)

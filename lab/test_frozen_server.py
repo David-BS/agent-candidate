@@ -44,6 +44,10 @@ TIERS (degrade gracefully; later tiers need more setup)
                                               -> candidate-suite -> .md path)
   T4  refusal contract over the wire         (needs CANDIDATE_SUITE_DIR; a blank
                                               critical field -> isError true)
+  T5  teardown is silent on EOF              (binary only; spawns the target with
+                                              stdin closed at once and asserts
+                                              rc=0 with no teardown traceback --
+                                              guards server.py's os._exit(0))
 
 write_cover_letter over JSON-RPC (.docx through the server seam) is a NAMED
 RESIDUE: test_frozen_build F3 already proves .docx-in-frozen via --run.
@@ -73,6 +77,8 @@ EXIT CODES
 import asyncio
 import json
 import os
+import re
+import subprocess
 import sys
 import tempfile
 import traceback
@@ -362,6 +368,44 @@ def main(argv):
     finally:
         err_handle.flush()
         err_handle.close()
+
+    # T5 -- teardown is SILENT on EOF. The tiers above drive the target with a
+    # graceful MCP client; this probe instead spawns it with stdin closed at once
+    # (immediate EOF -- what the host does when it stops the server) and asserts a
+    # clean exit with NO teardown traceback on stderr. It guards the os._exit(0)
+    # in server/server.py that suppresses anyio's stdin worker-thread
+    # `ValueError: I/O operation on closed file` at interpreter shutdown. This
+    # noise is platform/runtime dependent (observed on the frozen binary; may not
+    # reproduce on every dev runtime), so the probe BITES where it can and is a
+    # vacuous pass elsewhere -- never a false green. Skipped when a tier already
+    # failed (keeps the first failure as the reported cause).
+    if raised is None:
+        try:
+            proc = subprocess.run(
+                [str(command), *server_args],
+                input="",
+                capture_output=True,
+                text=True,
+                timeout=STEP_TIMEOUT,
+                env={**os.environ},
+            )
+            _check(
+                proc.returncode == 0,
+                "EOF launch exited %d (expected 0)" % proc.returncode,
+            )
+            noisy = re.search(
+                r"I/O operation on closed file|Traceback \(most recent call last\)",
+                proc.stderr,
+            )
+            _check(
+                noisy is None,
+                "teardown noise on stderr after EOF launch:\n" + proc.stderr.strip(),
+            )
+            _emit("T5", "PASS", "EOF launch: rc=0, stderr clean")
+        except Fail as e:
+            raised = e
+        except subprocess.TimeoutExpired:
+            raised = TimeoutError("EOF launch did not exit within %ss" % STEP_TIMEOUT)
 
     server_err = Path(err_path).read_text(encoding="utf-8", errors="replace").strip()
     try:

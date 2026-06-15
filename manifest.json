@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "agent-candidate",
   "display_name": "Agent Candidate",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Turn a job posting into a full application kit through the real candidate-suite generators: posting brief, cover letter, strategic playbook, application summary, interview prep, and a one-page quick-reference card. The untrusted posting is sanitised at ingestion and untrusted-origin identifiers are tripwired before the letter is written.",
   "long_description": "Agent Candidate turns a job posting into six deliverables through the real candidate-suite generators: a posting brief (.md), a cover letter (.docx), a strategic playbook (.md), an application summary (.md), interview prep (.md), and a one-page quick-reference card (.md). The posting is loaded as reference data (not instructions): non-rendered content is stripped at ingestion, and any identifier of untrusted origin that reaches the letter is refused before the document is produced. The candidate profile used to fill the letter is the developer's fictional sample data.",
   "author": {

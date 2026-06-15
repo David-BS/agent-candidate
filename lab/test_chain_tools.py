@@ -154,7 +154,36 @@ _GEN_BASE = {
     "language": "en",
 }
 NOMINAL_PLAYBOOK = dict(
-    _GEN_BASE, labels={k: k for k in chain.core.PLAYBOOK_LABEL_KEYS}
+    _GEN_BASE,
+    labels={k: k for k in chain.core.PLAYBOOK_LABEL_KEYS},
+    pain_points=[
+        {
+            "title": "Legacy monolith slows delivery",
+            "analysis": "Coupled deploys cap release cadence.",
+            "your_angle": "Led a comparable decomposition before.",
+        }
+    ],
+    questions_to_ask=["What does success look like in six months?"],
+    tough_questions=[
+        {
+            "question": "Why leave your current role?",
+            "strategy": "Frame the move as deliberate scope growth.",
+        }
+    ],
+    interview_strategy=[
+        {
+            "round": "System design",
+            "focus": "Reliability under load",
+            "approach": "Anchor every answer on SLOs.",
+        }
+    ],
+    red_lines=["No on-call without a funded rotation."],
+    positioning=[
+        {
+            "message": "Platform reliability is my core strength.",
+            "evidence": "Cut production incidents by 40% in a year.",
+        }
+    ],
 )
 NOMINAL_SUMMARY = dict(
     _GEN_BASE,
@@ -216,6 +245,29 @@ def _exercise_md_generator(
         "Robin Mercier" in md and "Helvetia Robotics SA" in md,
     )
     check(tool_name + " structure intact (H1 rendered)", md.lstrip().startswith("# "))
+    # Anti-amputation guard (item-shape, half 1/2): every array field the fixture
+    # populates must SURFACE in the .md. An item-shape drift (schema says
+    # array[string] where the renderer reads item.get("x")) silently drops the
+    # section; this catches it by asserting each populated item contributes at
+    # least one of its leaf strings to the rendered output.
+    for _fname, _fval in fixture.items():
+        if not (isinstance(_fval, list) and _fval):
+            continue
+        for _i, _item in enumerate(_fval):
+            _leaves = (
+                [_item]
+                if isinstance(_item, str)
+                else [v for v in _item.values() if isinstance(v, str)]
+            )
+            check(
+                tool_name
+                + " array field '"
+                + _fname
+                + "'["
+                + str(_i)
+                + "] rendered (no amputation)",
+                any(_leaf in md for _leaf in _leaves),
+            )
     res = run_handler(tools[tool_name], dict(fixture, language="english"))
     check(
         tool_name + " non-ISO language -> is_error (wrapper guard)",
@@ -228,6 +280,61 @@ def _exercise_md_generator(
         tool_name + " wrong label key set -> is_error (script structure guard)",
         res.get("is_error") is True,
     )
+
+
+def _check_schema_item_shapes(tool_name, schema, fixture):
+    """Item-shape guard, half 2/2: the model-facing inputSchema must DECLARE the
+    same item shape (string vs object, and the object's required keys) that the
+    fixture carries. The fixture is proven renderer-true in [4d-g]; tying the
+    schema to it makes the schema a checked projection of the renderer -- with no
+    hand-maintained third copy of 'expected shapes' to drift (that copy would
+    re-open the very bug). Catches the schema-side lie even when the renderer
+    still works because the fixture happens to be right (the v1.64 summary and
+    the playbook pain_points/tough_questions/interview_strategy case)."""
+    props = schema.get("properties", {})
+    for fname, fval in fixture.items():
+        if not (isinstance(fval, list) and fval):
+            continue
+        decl = props.get(fname)
+        check(
+            tool_name + " schema declares array for fixture field '" + fname + "'",
+            isinstance(decl, dict) and decl.get("type") == "array",
+        )
+        item_decl = decl.get("items", {}) if isinstance(decl, dict) else {}
+        item_kind = item_decl.get("type")
+        for i, item in enumerate(fval):
+            if isinstance(item, str):
+                check(
+                    tool_name
+                    + " '"
+                    + fname
+                    + "'["
+                    + str(i)
+                    + "] string fixture <-> string schema item",
+                    item_kind == "string",
+                )
+            elif isinstance(item, dict):
+                check(
+                    tool_name
+                    + " '"
+                    + fname
+                    + "'["
+                    + str(i)
+                    + "] object fixture <-> object schema item",
+                    item_kind == "object",
+                )
+                for rk in item_decl.get("required", []):
+                    check(
+                        tool_name
+                        + " '"
+                        + fname
+                        + "'["
+                        + str(i)
+                        + "] carries schema-required key '"
+                        + rk
+                        + "'",
+                        rk in item,
+                    )
 
 
 def main():
@@ -446,6 +553,16 @@ def main():
         "thin reference card (pitch + <4 sections) -> is_error (real exit 2)",
         res.get("is_error") is True and "exit 2" in res["content"][0]["text"],
     )
+
+    print("\n[4h] inputSchema item-shape == fixture item-shape (single-source)")
+    for _tname, _schema, _fixture in (
+        ("generate_posting_brief", chain.core.BRIEF_SCHEMA, NOMINAL_BRIEF),
+        ("generate_strategic_playbook", chain.core.PLAYBOOK_SCHEMA, NOMINAL_PLAYBOOK),
+        ("generate_application_summary", chain.core.SUMMARY_SCHEMA, NOMINAL_SUMMARY),
+        ("generate_interview_prep", chain.core.INTERVIEW_SCHEMA, NOMINAL_INTERVIEW),
+        ("generate_quick_reference", chain.core.REFCARD_SCHEMA, NOMINAL_REFCARD),
+    ):
+        _check_schema_item_shapes(_tname, _schema, _fixture)
 
     print("\n[5] Nominal cover letter -- through the REAL fill_cover_letter.py")
     nominal = dict(NOMINAL_LETTER)

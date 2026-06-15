@@ -1097,10 +1097,42 @@ PLAYBOOK_SCHEMA = {
         "company_context": {"type": "string"},
         "org_landscape": {"type": "string"},
         "thirty_second_pitch": {"type": "string"},
-        "pain_points": {"type": "array", "items": {"type": "string"}},
+        "pain_points": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "analysis": {"type": "string"},
+                    "your_angle": {"type": "string"},
+                },
+                "required": ["title"],
+            },
+        },
         "questions_to_ask": {"type": "array", "items": {"type": "string"}},
-        "tough_questions": {"type": "array", "items": {"type": "string"}},
-        "interview_strategy": {"type": "array", "items": {"type": "string"}},
+        "tough_questions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string"},
+                    "strategy": {"type": "string"},
+                },
+                "required": ["question"],
+            },
+        },
+        "interview_strategy": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "round": {"type": "string"},
+                    "focus": {"type": "string"},
+                    "approach": {"type": "string"},
+                },
+                "required": ["round"],
+            },
+        },
         "red_lines": {"type": "array", "items": {"type": "string"}},
         "positioning": {
             "type": "array",
@@ -1127,8 +1159,10 @@ def playbook_tool_description():
         "candidate-suite generator, for the candidate's OWN interview prep. "
         "Required: candidate_name, job_title, company_name, date. Optional: "
         "company_context / org_landscape / thirty_second_pitch (strings); "
-        "pain_points / questions_to_ask / tough_questions / red_lines / "
-        "interview_strategy (lists of strings); positioning (list of objects, "
+        "questions_to_ask / red_lines (lists of strings); pain_points (list of "
+        "objects, each {title, analysis, your_angle}); tough_questions (list of "
+        "objects, each {question, strategy}); interview_strategy (list of "
+        "objects, each {round, focus, approach}); positioning (list of objects, "
         "each a message with its supporting evidence); web_research_done "
         "(boolean). labels is an object of localized structure labels with "
         "EXACTLY these keys: " + ", ".join(PLAYBOOK_LABEL_KEYS) + ". The output "

@@ -89,10 +89,11 @@ from chain_core import (
     MISSING_SENTINEL,
     OFFER_NOT_FOUND_PREFIX,
     OUTPUT_DIR,
+    POSTING_BOTH_INPUTS,
+    POSTING_NO_INPUT,
     POSTING_RESULT_PREFIX,
     SERVER_NAME,
     TEMPLATE_RELPATH,
-    _NON_RENDERED_RE,
     _REFERENCE_CODE_RE,
     _find_untrusted_identifiers,
     _identifier_tokens,
@@ -137,10 +138,11 @@ __all__ = [
     "MISSING_SENTINEL",
     "OFFER_NOT_FOUND_PREFIX",
     "OUTPUT_DIR",
+    "POSTING_BOTH_INPUTS",
+    "POSTING_NO_INPUT",
     "POSTING_RESULT_PREFIX",
     "SERVER_NAME",
     "TEMPLATE_RELPATH",
-    "_NON_RENDERED_RE",
     "_REFERENCE_CODE_RE",
     "_find_untrusted_identifiers",
     "_identifier_tokens",
@@ -210,7 +212,10 @@ def build_tools():
     )
     async def load_job_posting(args):
         try:
-            text = core.build_posting_load(args["offer_path"])
+            text = core.build_posting_load(
+                offer_path=args.get("offer_path"),
+                offer_body=args.get("offer_body"),
+            )
         except FileNotFoundError:
             return {
                 "content": [
@@ -222,6 +227,8 @@ def build_tools():
                 ],
                 "is_error": True,
             }
+        except ValueError as e:
+            return {"content": [{"type": "text", "text": str(e)}], "is_error": True}
         return {
             "content": [{"type": "text", "text": core.POSTING_RESULT_PREFIX + text}]
         }

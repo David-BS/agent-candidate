@@ -36,6 +36,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 import brief_to_letter_chain as chain
+import lxml.html
 from claude_agent_sdk.types import ResultMessage
 
 CANARY_BY_FIXTURE = {
@@ -412,6 +413,74 @@ def main():
     check("drops comment content", "HIDDEN-COMMENT" not in cleaned)
     check("drops <script> content", "HIDDEN_SCRIPT" not in cleaned)
     check("drops <style> content", "HIDDEN-STYLE" not in cleaned)
+
+    print("\n[2c] Bogus-comment sub-channel (py/bad-tag-filter falsifier)")
+    # A browser treats these THREE constructs as bogus comments (a human never
+    # sees their contents), but the OLD regex only knew <!-- -->. Each LEAKED a
+    # canary through the regex.
+    #
+    # The guarantee the structural strip actually makes is NOT "the payload
+    # disappears" -- that turned out to be libxml2-version-dependent (2.11.9 drops
+    # <! .. > and <? .. > but DOWNGRADES </ .. > to visible text rather than
+    # removing it). The version-robust invariant is: AFTER the strip, re-parsing
+    # the output yields ZERO non-rendered nodes. No hidden carrier survives; a
+    # payload is either removed or DOWNGRADED INTO THE VISIBLE CHANNEL, never left
+    # hidden. Downgraded-to-visible joins the already-documented visible residual
+    # (instructional rampart + the candidate's native human review) -- the input
+    # rampart's job is to guarantee nothing reaches the model THROUGH A HIDDEN
+    # CARRIER, which is exactly what this asserts.
+    #
+    # Falsify-first: this FAILED against the regex (the bogus comments survived as
+    # raw <! .. > / <? .. > / </ .. > markup, i.e. as non-rendered nodes on
+    # re-parse) and PASSES against the structural strip.
+    bogus = {
+        "bang  <! .. >": "<p>KEEP-A</p><! BOGUS_CANARY_AAA >tail-A",
+        "pi    <? .. >": "<p>KEEP-B</p><?php BOGUS_CANARY_BBB ?>tail-B",
+        "slash </ .. >": "<p>KEEP-C</p></ BOGUS_CANARY_CCC >tail-C",
+    }
+    for label, html in bogus.items():
+        out = chain._strip_non_rendered(html)
+        reparsed = lxml.html.fragment_fromstring(out, create_parent="div")
+        hidden = [
+            n
+            for n in reparsed.iter()
+            if (not isinstance(n.tag, str))
+            or (isinstance(n.tag, str) and n.tag.lower() in ("script", "style"))
+        ]
+        check("no non-rendered node survives the strip (" + label + ")", not hidden)
+        check("visible tail after the carrier survives (" + label + ")", "tail-" in out)
+    # Structural half: the carrier-enumerating regex is GONE. We are the parser
+    # now -- there is no deny-list to extend (the axis 4/6 lesson on the input
+    # side). A reintroduced _NON_RENDERED_RE would be the regression to catch.
+    check(
+        "regex deny-list removed (structural strip, not a wider pattern)",
+        not hasattr(chain, "_NON_RENDERED_RE"),
+    )
+
+    print("\n[2d] Ingestion served BOTH WAYS (offer_path + offer_body)")
+    body = "<p>Atlas Banque</p><!-- HIDE_VIA_BODY -->visible-body"
+    served_body = chain.build_posting_load(offer_body=body)
+    check(
+        "offer_body path sanitises (hidden carrier dropped)",
+        "HIDE_VIA_BODY" not in served_body,
+    )
+    check("offer_body path keeps visible text", "visible-body" in served_body)
+    served_path = chain.build_posting_load(offer_path=DEFAULT_OFFER)
+    check(
+        "offer_path path still works (back-compat)",
+        isinstance(served_path, str) and served_path,
+    )
+    # Exactly-one contract: neither and both are clean ValueErrors, not crashes.
+    try:
+        chain.build_posting_load()
+        check("neither input -> ValueError", False)
+    except ValueError:
+        check("neither input -> ValueError", True)
+    try:
+        chain.build_posting_load(offer_path=DEFAULT_OFFER, offer_body=body)
+        check("both inputs -> ValueError", False)
+    except ValueError:
+        check("both inputs -> ValueError", True)
 
     print("\n[3] Missing offer file degrades cleanly")
     tools = {t.name: t for t in chain.build_tools()}

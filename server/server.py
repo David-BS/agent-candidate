@@ -105,11 +105,16 @@ async def call_tool(name: str, arguments: dict):
     dev harness maps them to the Agent SDK clean-error dict."""
     if name == core.LOAD_POSTING_NAME:
         try:
-            text = core.build_posting_load(arguments["offer_path"])
+            text = core.build_posting_load(
+                offer_path=arguments.get("offer_path"),
+                offer_body=arguments.get("offer_body"),
+            )
         except FileNotFoundError:
             return _error(
                 core.OFFER_NOT_FOUND_PREFIX + str(arguments.get("offer_path"))
             )
+        except ValueError as e:
+            return _error(str(e))
         return _text(core.POSTING_RESULT_PREFIX + text)
 
     if name == core.BRIEF_NAME:

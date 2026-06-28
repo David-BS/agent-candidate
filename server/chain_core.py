@@ -274,7 +274,20 @@ CANDIDATE_PROFILE = {
     "sender_email": "robin.mercier@example.org",
     "sender_phone": "+33 6 12 34 56 78",
     "sender_linkedin": "linkedin.com/in/robin-mercier-fictif",
+    # candidate_name: the candidate's display identity, injected into the
+    # md-generators (playbook/summary/interview/refcard) by the helper below.
+    "candidate_name": "Robin Mercier",
 }
+
+
+def _inject_candidate_identity(payload):
+    """Profile wins: overwrite the candidate identity field with the fixed
+    fictional value so the agent can never supply it -- the manifest promise
+    (fictional sample data) is enforced by code, not by a free tool parameter.
+    Single binding location: CANDIDATE_PROFILE (destined to become the
+    deployment MCP resource, like the sender_* fields)."""
+    payload["candidate_name"] = CANDIDATE_PROFILE["candidate_name"]
+    return payload
 
 
 # Pure tool logic (no SDK import here -> importable and testable without the CLI)
@@ -815,6 +828,7 @@ def build_playbook(data, output_dir=None):
         )
 
     payload = {f: data[f] for f in PLAYBOOK_MODEL_FIELDS if f in data}
+    _inject_candidate_identity(payload)
     labels = data.get("labels")
     if not isinstance(labels, dict):
         labels = {}
@@ -948,6 +962,7 @@ def _run_md_generator(
             "(e.g. 'fr', 'en'); got: " + repr(language)
         )
     payload = {f: data[f] for f in model_fields if f in data}
+    _inject_candidate_identity(payload)
     labels = data.get("labels")
     if not isinstance(labels, dict):
         labels = {}
@@ -1152,7 +1167,6 @@ def letter_tool_description():
 PLAYBOOK_SCHEMA = {
     "type": "object",
     "properties": {
-        "candidate_name": {"type": "string"},
         "job_title": {"type": "string"},
         "company_name": {"type": "string"},
         "date": {"type": "string"},
@@ -1205,7 +1219,6 @@ PLAYBOOK_SCHEMA = {
         "language": {"type": "string"},
     },
     "required": [
-        "candidate_name",
         "job_title",
         "company_name",
         "date",
@@ -1220,7 +1233,7 @@ def playbook_tool_description():
     return (
         "Create the strategic-playbook dossier (.md) through the real "
         "candidate-suite generator, for the candidate's OWN interview prep. "
-        "Required: candidate_name, job_title, company_name, date. Optional: "
+        "Required: job_title, company_name, date. Optional: "
         "company_context / org_landscape / thirty_second_pitch (strings); "
         "questions_to_ask / red_lines (lists of strings); pain_points (list of "
         "objects, each {title, analysis, your_angle}); tough_questions (list of "
@@ -1237,7 +1250,6 @@ def playbook_tool_description():
 SUMMARY_SCHEMA = {
     "type": "object",
     "properties": {
-        "candidate_name": {"type": "string"},
         "job_title": {"type": "string"},
         "company_name": {"type": "string"},
         "date": {"type": "string"},
@@ -1288,7 +1300,6 @@ SUMMARY_SCHEMA = {
         "language": {"type": "string"},
     },
     "required": [
-        "candidate_name",
         "job_title",
         "company_name",
         "date",
@@ -1305,7 +1316,7 @@ SUMMARY_SCHEMA = {
 def summary_tool_description():
     return (
         "Create the application-summary dossier (.md) through the real "
-        "candidate-suite generator. Required: candidate_name, job_title, "
+        "candidate-suite generator. Required: job_title, "
         "company_name, date; pitch (list of EXACTLY 5 strings); strengths (list "
         "of {title, context}); weaknesses (list of {title, approach}); "
         "talking_points (list of {title, content}). Optional: opening_tip / "
@@ -1319,7 +1330,6 @@ def summary_tool_description():
 INTERVIEW_SCHEMA = {
     "type": "object",
     "properties": {
-        "candidate_name": {"type": "string"},
         "job_title": {"type": "string"},
         "company_name": {"type": "string"},
         "date": {"type": "string"},
@@ -1352,7 +1362,6 @@ INTERVIEW_SCHEMA = {
         "language": {"type": "string"},
     },
     "required": [
-        "candidate_name",
         "job_title",
         "company_name",
         "date",
@@ -1367,7 +1376,7 @@ INTERVIEW_SCHEMA = {
 def interview_tool_description():
     return (
         "Create the interview-prep dossier (.md) through the real candidate-suite "
-        "generator. Required: candidate_name, job_title, company_name, date; "
+        "generator. Required: job_title, company_name, date; "
         "screening_questions and competence_questions (lists of objects, each "
         "{question, answer}). Optional: opening_tip_screening / "
         "opening_tip_competence / closing_tip (strings). labels is an object of "
@@ -1381,7 +1390,6 @@ def interview_tool_description():
 REFCARD_SCHEMA = {
     "type": "object",
     "properties": {
-        "candidate_name": {"type": "string"},
         "job_title": {"type": "string"},
         "company_name": {"type": "string"},
         "date": {"type": "string"},
@@ -1416,7 +1424,6 @@ REFCARD_SCHEMA = {
         "language": {"type": "string"},
     },
     "required": [
-        "candidate_name",
         "job_title",
         "company_name",
         "date",
@@ -1430,7 +1437,7 @@ def refcard_tool_description():
     return (
         "Create the one-page quick-reference card (.md) through the real "
         "candidate-suite generator. It CONDENSES the other deliverables -- call "
-        "it AFTER producing them. Required: candidate_name, job_title, "
+        "it AFTER producing them. Required: job_title, "
         "company_name, date. Optional: pitch_short (string); key_stats (list of "
         "stat objects); top_points (list of {point, evidence}); quick_qa (list "
         "of {question, answer}); questions_to_ask / checklist (lists of "

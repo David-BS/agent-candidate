@@ -68,7 +68,7 @@ jobs:
 
       - name: Upload bundle
         if: matrix.ship
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: agent-candidate-${{ matrix.os }}-${{ matrix.arch }}
           path: dist/agent-candidate
@@ -157,7 +157,7 @@ jobs:
           echo "--- bundles ---"; ls -la _dist
 
       - name: Upload .mcpb (inspectable on dispatch and tag)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mcpb-bundles
           path: _dist/*.mcpb

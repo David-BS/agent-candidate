@@ -47,7 +47,7 @@ jobs:
           ref: 2863162ee8bdb6260dd6d0c99621115a5b89cb6a   # full immutable SHA (v1.0.0 tip); checkout cannot fetch a short SHA
           path: candidate-suite
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.13'   # freeze with the version that tests; the frozen-proof is the 3.12->3.13 oracle for candidate-suite
 

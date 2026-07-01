@@ -41,7 +41,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout (to read floor.yml)
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Resolve pinned SHA and candidate-suite HEAD
         id: resolve

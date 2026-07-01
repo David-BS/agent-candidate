@@ -26,11 +26,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout agent-candidate
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         # primary checkout -> $GITHUB_WORKSPACE
 
       - name: Checkout candidate-suite (sibling real-suite back-end, pinned)
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: David-BS/candidate-suite
           # Immutable pin (release/1.0.0, merge of PR #21). Swap for a tag like

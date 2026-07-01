@@ -90,7 +90,7 @@ jobs:
           ref: 2863162ee8bdb6260dd6d0c99621115a5b89cb6a   # the .py travel beside the binary at ${__dirname}/candidate-suite; full proven tree (== build's CANDIDATE_SUITE_DIR)
           path: _suite
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: '20'
 

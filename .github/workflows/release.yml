@@ -38,10 +38,10 @@ jobs:
       # Frozen binary self-re-execs into these .py; pinned sibling, mirrors the Floor job.
       CANDIDATE_SUITE_DIR: ${{ github.workspace }}/candidate-suite
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Checkout candidate-suite (pinned)
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           repository: David-BS/candidate-suite
           ref: 2863162ee8bdb6260dd6d0c99621115a5b89cb6a   # full immutable SHA (v1.0.0 tip); checkout cannot fetch a short SHA
@@ -81,10 +81,10 @@ jobs:
     permissions:
       contents: write               # the one job that earns write -- used only by the attach step (tag only)
     steps:
-      - uses: actions/checkout@v5    # for manifest.json + .mcpbignore
+      - uses: actions/checkout@v7    # for manifest.json + .mcpbignore
 
       - name: Checkout candidate-suite (pinned)
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           repository: David-BS/candidate-suite
           ref: 2863162ee8bdb6260dd6d0c99621115a5b89cb6a   # the .py travel beside the binary at ${__dirname}/candidate-suite; full proven tree (== build's CANDIDATE_SUITE_DIR)

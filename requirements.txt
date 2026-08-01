@@ -2,7 +2,7 @@
 # PyInstaller build. The shipped .mcpb bundles a FROZEN binary, so end users do
 # NOT pip-install these -- CI and the build do. Pinned for a reproducible floor
 # and a reproducible binary (a silent lxml bump can break the C-extension build).
-claude-agent-sdk==0.2.97   # dev harness + floor import (NO API call in tests)
+claude-agent-sdk==0.2.128   # dev harness + floor import (NO API call in tests)
 mcp==1.27.2                # the nu stdio MCP server (server.py) + floor [8d]
 python-docx==1.2.0         # cover-letter .docx generation (real candidate-suite)
 lxml==6.1.1                # python-docx's C-extension backend; pinned explicitly

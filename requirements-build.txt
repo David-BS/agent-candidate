@@ -2,7 +2,7 @@
 # Kept apart from requirements.txt (runtime deps): these are needed to PRODUCE
 # the .mcpb payload, never to run the server. The future release.yml installs
 # this file before invoking PyInstaller.
-pyinstaller==6.20.0
+pyinstaller==6.22.2
 pyinstaller-hooks-contrib==2026.6
 # tzdata: bundled into the binary so zoneinfo can resolve IANA zones (e.g.
 # Europe/Paris) on Windows, which has no system tz database. See the spec.

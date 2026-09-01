@@ -5,4 +5,4 @@
 claude-agent-sdk==0.2.97   # dev harness + floor import (NO API call in tests)
 mcp==1.27.2                # the nu stdio MCP server (server.py) + floor [8d]
 python-docx==1.2.0         # cover-letter .docx generation (real candidate-suite)
-lxml==6.1.1                # python-docx's C-extension backend; pinned explicitly
+lxml==6.1.2                # python-docx's C-extension backend; pinned explicitly
